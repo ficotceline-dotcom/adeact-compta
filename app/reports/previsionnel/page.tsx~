@@ -1,0 +1,281 @@
+'use client'
+
+import { useEffect, useMemo, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+
+type Budget = {
+  id: string
+  name: string
+  ordre: number
+}
+
+type AllocationRow = {
+  budget_id: string
+  amount_cents: number
+  transaction?:
+    | { kind: 'income' | 'expense' }
+    | { kind: 'income' | 'expense' }[]
+    | null
+}
+
+function firstObj<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null
+  return Array.isArray(value) ? value[0] ?? null : value
+}
+
+function centsToEuros(cents: number) {
+  return (cents / 100).toFixed(2)
+}
+
+function diffColor(kind: 'income' | 'expense', diff: number) {
+  if (kind === 'expense') {
+    return diff > 0 ? 'red' : 'green'
+  }
+  return diff < 0 ? 'red' : 'green'
+}
+
+function readBudgetId(row: any): string | null {
+  return row?.budget_id ?? row?.budgetId ?? null
+}
+
+function readKind(row: any): 'income' | 'expense' | null {
+  const raw = row?.kind ?? row?.type ?? row?.forecast_type ?? row?.nature ?? null
+  if (raw === 'income' || raw === 'expense') return raw
+  if (raw === 'recette') return 'income'
+  if (raw === 'depense' || raw === 'dépense') return 'expense'
+  return null
+}
+
+function readAmountCents(row: any): number {
+  const candidates = [
+    row?.amount_cents,
+    row?.forecast_cents,
+    row?.planned_amount_cents,
+    row?.previsionnel_cents,
+    row?.montant_cents,
+  ]
+
+  for (const value of candidates) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value
+    }
+  }
+
+  const decimalCandidates = [
+    row?.amount,
+    row?.forecast_amount,
+    row?.planned_amount,
+    row?.previsionnel,
+    row?.montant,
+  ]
+
+  for (const value of decimalCandidates) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return Math.round(value * 100)
+    }
+  }
+
+  return 0
+}
+
+export default function PrevisionnelPage() {
+  const [loading, setLoading] = useState(true)
+  const [budgets, setBudgets] = useState<Budget[]>([])
+  const [forecastRows, setForecastRows] = useState<any[]>([])
+  const [allocationRows, setAllocationRows] = useState<AllocationRow[]>([])
+
+  useEffect(() => {
+    load()
+  }, [])
+
+  async function load() {
+    setLoading(true)
+
+    const [
+      { data: budgetsData, error: e1 },
+      { data: forecastData, error: e2 },
+      { data: allocData, error: e3 },
+    ] = await Promise.all([
+      supabase
+        .from('budgets')
+        .select('id,name,ordre')
+        .eq('is_archived', false)
+        .order('ordre'),
+
+      supabase
+        .from('budget_forecasts')
+        .select('*'),
+
+      supabase
+        .from('transaction_allocations')
+        .select(`
+          budget_id,
+          amount_cents,
+          transaction:transactions(kind)
+        `),
+    ])
+
+    if (e1 || e2 || e3) {
+      console.error(e1 || e2 || e3)
+      alert('Erreur chargement prévisionnel')
+      setLoading(false)
+      return
+    }
+
+    setBudgets((budgetsData ?? []) as Budget[])
+    setForecastRows((forecastData ?? []) as any[])
+    setAllocationRows((allocData ?? []) as AllocationRow[])
+    setLoading(false)
+  }
+
+  const byBudget = useMemo(() => {
+    return budgets.map((budget) => {
+      const budgetForecasts = forecastRows.filter(
+        (row) => readBudgetId(row) === budget.id
+      )
+
+      const budgetActuals = allocationRows.filter(
+        (row) => row.budget_id === budget.id
+      )
+
+      const incomeForecast = budgetForecasts
+        .filter((row) => readKind(row) === 'income')
+        .reduce((sum, row) => sum + readAmountCents(row), 0)
+
+      const expenseForecast = budgetForecasts
+        .filter((row) => readKind(row) === 'expense')
+        .reduce((sum, row) => sum + readAmountCents(row), 0)
+
+      const incomeActual = budgetActuals
+        .filter((row) => firstObj(row.transaction)?.kind === 'income')
+        .reduce((sum, row) => sum + row.amount_cents, 0)
+
+      const expenseActual = budgetActuals
+        .filter((row) => firstObj(row.transaction)?.kind === 'expense')
+        .reduce((sum, row) => sum + row.amount_cents, 0)
+
+      return {
+        budget,
+        incomeForecast,
+        incomeActual,
+        incomeDiff: incomeActual - incomeForecast,
+        expenseForecast,
+        expenseActual,
+        expenseDiff: expenseActual - expenseForecast,
+      }
+    })
+  }, [budgets, forecastRows, allocationRows])
+
+  if (loading) {
+    return <main style={{ padding: 24, fontFamily: 'system-ui' }}>Chargement…</main>
+  }
+
+  return (
+    <main style={{ padding: 24, fontFamily: 'system-ui', maxWidth: 1200 }}>
+      <h1 style={{ fontSize: 26, fontWeight: 900 }}>Prévisionnel vs réalisé</h1>
+
+      <div style={{ marginTop: 10, opacity: 0.75 }}>
+        Le comparatif est affiché par budget. Si aucun prévisionnel n’a encore été saisi, le prévisionnel reste à 0.
+      </div>
+
+      <div style={{ marginTop: 18, display: 'grid', gap: 16 }}>
+        {byBudget.map((row) => (
+          <div
+            key={row.budget.id}
+            style={{
+              border: '1px solid #ddd',
+              borderRadius: 14,
+              padding: 18,
+              background: 'white',
+            }}
+          >
+            <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 14 }}>
+              {row.budget.name}
+            </div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 18,
+              }}
+            >
+              <div
+                style={{
+                  background: '#eef9ee',
+                  border: '1px solid #d8ecd8',
+                  borderRadius: 12,
+                  padding: 16,
+                }}
+              >
+                <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 12 }}>
+                  Recettes
+                </div>
+
+                <div style={lineStyle}>
+                  <span>Prévisionnel</span>
+                  <b>{centsToEuros(row.incomeForecast)} €</b>
+                </div>
+
+                <div style={lineStyle}>
+                  <span>Réalisé</span>
+                  <b>{centsToEuros(row.incomeActual)} €</b>
+                </div>
+
+                <div style={lineStyle}>
+                  <span>Écart</span>
+                  <b style={{ color: diffColor('income', row.incomeDiff) }}>
+                    {row.incomeDiff >= 0 ? '+' : ''}
+                    {centsToEuros(row.incomeDiff)} €
+                  </b>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  background: '#fdf0f0',
+                  border: '1px solid #efdada',
+                  borderRadius: 12,
+                  padding: 16,
+                }}
+              >
+                <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 12 }}>
+                  Dépenses
+                </div>
+
+                <div style={lineStyle}>
+                  <span>Prévisionnel</span>
+                  <b>{centsToEuros(row.expenseForecast)} €</b>
+                </div>
+
+                <div style={lineStyle}>
+                  <span>Réalisé</span>
+                  <b>{centsToEuros(row.expenseActual)} €</b>
+                </div>
+
+                <div style={lineStyle}>
+                  <span>Écart</span>
+                  <b style={{ color: diffColor('expense', row.expenseDiff) }}>
+                    {row.expenseDiff >= 0 ? '+' : ''}
+                    {centsToEuros(row.expenseDiff)} €
+                  </b>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {byBudget.length === 0 && (
+          <div style={{ opacity: 0.7 }}>Aucun budget trouvé.</div>
+        )}
+      </div>
+    </main>
+  )
+}
+
+const lineStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 12,
+  padding: '8px 0',
+}
