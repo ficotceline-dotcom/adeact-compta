@@ -12,6 +12,7 @@ type Budget = {
 type Category = {
   id: string
   name: string
+  budget_id: string | null
 }
 
 type Subcategory = {
@@ -26,16 +27,6 @@ type ForecastRow = {
   category_id: string | null
   subcategory_id: string | null
   amount_cents: number | null
-}
-
-type CategoryMappingRow = {
-  budget_id: string | null
-  category_id: string | null
-}
-
-type SubcategoryMappingRow = {
-  budget_id: string | null
-  subcategory_id: string | null
 }
 
 function centsToEuros(cents: number) {
@@ -66,12 +57,11 @@ export default function AdminPrevisionnelPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [subcategories, setSubcategories] = useState<Subcategory[]>([])
   const [forecastRows, setForecastRows] = useState<ForecastRow[]>([])
-  const [categoryMappings, setCategoryMappings] = useState<CategoryMappingRow[]>([])
-  const [subcategoryMappings, setSubcategoryMappings] = useState<SubcategoryMappingRow[]>([])
 
   const [selectedBudgetId, setSelectedBudgetId] = useState('')
   const [values, setValues] = useState<Record<string, string>>({})
   const [message, setMessage] = useState('')
+  const [debugError, setDebugError] = useState('')
 
   useEffect(() => {
     load()
@@ -105,59 +95,66 @@ export default function AdminPrevisionnelPage() {
   async function load() {
     setLoading(true)
     setMessage('')
+    setDebugError('')
 
-    const [
-      { data: budgetsData, error: e1 },
-      { data: categoriesData, error: e2 },
-      { data: subcategoriesData, error: e3 },
-      { data: forecastsData, error: e4 },
-      { data: categoryMappingsData, error: e5 },
-      { data: subcategoryMappingsData, error: e6 },
-    ] = await Promise.all([
-      supabase
-        .from('budgets')
-        .select('id,name,ordre')
-        .eq('is_archived', false)
-        .order('ordre'),
+    const budgetsRes = await supabase
+      .from('budgets')
+      .select('id,name,ordre')
+      .eq('is_archived', false)
+      .order('ordre')
 
-      supabase
-        .from('categories')
-        .select('id,name')
-        .order('name'),
-
-      supabase
-        .from('subcategories')
-        .select('id,name,category_id')
-        .order('name'),
-
-      supabase
-        .from('budget_forecasts')
-        .select('budget_id,kind,category_id,subcategory_id,amount_cents'),
-
-      supabase
-        .from('category_mapping')
-        .select('budget_id,category_id'),
-
-      supabase
-        .from('subcategory_mapping')
-        .select('budget_id,subcategory_id'),
-    ])
-
-    if (e1 || e2 || e3 || e4 || e5 || e6) {
-      console.error(e1 || e2 || e3 || e4 || e5 || e6)
+    if (budgetsRes.error) {
+      console.error('budgets error', budgetsRes.error)
+      setDebugError(`budgets: ${budgetsRes.error.message}`)
       alert('Erreur chargement admin prévisionnel')
       setLoading(false)
       return
     }
 
-    const loadedBudgets = (budgetsData ?? []) as Budget[]
+    const categoriesRes = await supabase
+      .from('categories')
+      .select('id,name,budget_id')
+      .order('name')
+
+    if (categoriesRes.error) {
+      console.error('categories error', categoriesRes.error)
+      setDebugError(`categories: ${categoriesRes.error.message}`)
+      alert('Erreur chargement admin prévisionnel')
+      setLoading(false)
+      return
+    }
+
+    const subcategoriesRes = await supabase
+      .from('subcategories')
+      .select('id,name,category_id')
+      .order('name')
+
+    if (subcategoriesRes.error) {
+      console.error('subcategories error', subcategoriesRes.error)
+      setDebugError(`subcategories: ${subcategoriesRes.error.message}`)
+      alert('Erreur chargement admin prévisionnel')
+      setLoading(false)
+      return
+    }
+
+    const forecastsRes = await supabase
+      .from('budget_forecasts')
+      .select('budget_id,kind,category_id,subcategory_id,amount_cents')
+
+    if (forecastsRes.error) {
+      console.error('budget_forecasts error', forecastsRes.error)
+      setDebugError(`budget_forecasts: ${forecastsRes.error.message}`)
+      alert('Erreur chargement admin prévisionnel')
+      setLoading(false)
+      return
+    }
+
+    const loadedBudgets = (budgetsRes.data ?? []) as Budget[]
 
     setBudgets(loadedBudgets)
-    setCategories((categoriesData ?? []) as Category[])
-    setSubcategories((subcategoriesData ?? []) as Subcategory[])
-    setForecastRows((forecastsData ?? []) as ForecastRow[])
-    setCategoryMappings((categoryMappingsData ?? []) as CategoryMappingRow[])
-    setSubcategoryMappings((subcategoryMappingsData ?? []) as SubcategoryMappingRow[])
+    setCategories((categoriesRes.data ?? []) as Category[])
+    setSubcategories((subcategoriesRes.data ?? []) as Subcategory[])
+    setForecastRows((forecastsRes.data ?? []) as ForecastRow[])
 
     if (loadedBudgets.length > 0) {
       setSelectedBudgetId((prev) => prev || loadedBudgets[0].id)
@@ -173,38 +170,28 @@ export default function AdminPrevisionnelPage() {
     }))
   }
 
-  const allowedCategoryIds = useMemo(() => {
-    return new Set(
-      categoryMappings
-        .filter((row) => row.budget_id === selectedBudgetId && row.category_id)
-        .map((row) => row.category_id as string)
-    )
-  }, [categoryMappings, selectedBudgetId])
+  const visibleCategories = useMemo(() => {
+    return categories.filter((category) => category.budget_id === selectedBudgetId)
+  }, [categories, selectedBudgetId])
 
-  const allowedSubcategoryIds = useMemo(() => {
-    return new Set(
-      subcategoryMappings
-        .filter((row) => row.budget_id === selectedBudgetId && row.subcategory_id)
-        .map((row) => row.subcategory_id as string)
-    )
-  }, [subcategoryMappings, selectedBudgetId])
+  const visibleCategoryIds = useMemo(() => {
+    return new Set(visibleCategories.map((c) => c.id))
+  }, [visibleCategories])
 
   const visibleSubcategories = useMemo(() => {
-    return subcategories.filter((sub) => {
-      if (allowedSubcategoryIds.has(sub.id)) return true
-      if (sub.category_id && allowedCategoryIds.has(sub.category_id)) return true
-      return false
-    })
-  }, [subcategories, allowedSubcategoryIds, allowedCategoryIds])
+    return subcategories.filter(
+      (sub) => sub.category_id && visibleCategoryIds.has(sub.category_id)
+    )
+  }, [subcategories, visibleCategoryIds])
 
   const categoriesWithSubs = useMemo(() => {
-    return categories
+    return visibleCategories
       .map((category) => ({
         ...category,
         subcategories: visibleSubcategories.filter((s) => s.category_id === category.id),
       }))
       .filter((category) => category.subcategories.length > 0)
-  }, [categories, visibleSubcategories])
+  }, [visibleCategories, visibleSubcategories])
 
   const expenseTotalCents = useMemo(() => {
     return visibleSubcategories.reduce((sum, sub) => {
@@ -228,6 +215,7 @@ export default function AdminPrevisionnelPage() {
 
     setSaving(true)
     setMessage('')
+    setDebugError('')
 
     try {
       const { error: deleteError } = await supabase
@@ -243,7 +231,6 @@ export default function AdminPrevisionnelPage() {
         category_id: string | null
         subcategory_id: string
         amount_cents: number
-        updated_at?: string
       }[] = []
 
       for (const sub of visibleSubcategories) {
@@ -257,7 +244,6 @@ export default function AdminPrevisionnelPage() {
             category_id: sub.category_id,
             subcategory_id: sub.id,
             amount_cents: expenseCents,
-            updated_at: new Date().toISOString(),
           })
         }
 
@@ -268,7 +254,6 @@ export default function AdminPrevisionnelPage() {
             category_id: sub.category_id,
             subcategory_id: sub.id,
             amount_cents: incomeCents,
-            updated_at: new Date().toISOString(),
           })
         }
       }
@@ -285,6 +270,7 @@ export default function AdminPrevisionnelPage() {
       await load()
     } catch (e: any) {
       console.error(e)
+      setDebugError(e?.message ?? 'Erreur inconnue')
       alert(`Erreur sauvegarde prévisionnel : ${e?.message ?? 'inconnue'}`)
     } finally {
       setSaving(false)
@@ -302,6 +288,22 @@ export default function AdminPrevisionnelPage() {
   return (
     <main style={{ padding: 24, fontFamily: 'system-ui', maxWidth: 1400 }}>
       <h1 style={{ fontSize: 28, fontWeight: 900 }}>Admin prévisionnel</h1>
+
+      {debugError && (
+        <div
+          style={{
+            marginTop: 16,
+            padding: 12,
+            borderRadius: 10,
+            background: '#fff3f3',
+            border: '1px solid #e0b4b4',
+            color: '#8a1f1f',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          <b>Détail erreur :</b> {debugError}
+        </div>
+      )}
 
       <div
         style={{
