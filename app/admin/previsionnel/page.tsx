@@ -6,333 +6,504 @@ import { supabase } from '@/lib/supabase'
 type Budget = {
   id: string
   name: string
-  is_archived: boolean | null
   ordre: number
-}
-
-type FiscalYear = {
-  id: string
-  year: number
-  start_date: string
-  end_date: string
 }
 
 type Category = {
   id: string
-  budget_id: string
-  kind: 'income' | 'expense'
   name: string
-  ordre: number
 }
 
 type Subcategory = {
   id: string
-  category_id: string
   name: string
-  ordre: number
+  category_id: string | null
 }
 
-type BudgetForecast = {
-  id: string
-  budget_id: string
-  fiscal_year_id: string
-  kind: 'income' | 'expense'
-  category_id: string
+type ForecastRow = {
+  budget_id: string | null
+  kind: 'income' | 'expense' | string | null
+  category_id: string | null
   subcategory_id: string | null
-  amount_cents: number
-  ordre: number
-}
-
-type ForecastLine = {
-  key: string
-  category_id: string
-  subcategory_id: string | null
-  label: string
-  ordre: number
+  amount_cents: number | null
 }
 
 function centsToEuros(cents: number) {
   return (cents / 100).toFixed(2)
 }
 
-function eurosToCents(value: string): number {
-  const normalized = value.replace(',', '.').trim()
-  if (!normalized) return 0
-  const num = Number(normalized)
-  if (!Number.isFinite(num)) return 0
-  return Math.round(num * 100)
+function eurosStringToCents(value: string) {
+  if (!value.trim()) return 0
+  const normalized = value.replace(',', '.')
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0
+}
+
+function centsToInputValue(cents: number) {
+  if (!cents) return ''
+  return (cents / 100).toFixed(2)
+}
+
+function keyOf(kind: 'income' | 'expense', subcategoryId: string) {
+  return `${kind}__${subcategoryId}`
 }
 
 export default function AdminPrevisionnelPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-
   const [budgets, setBudgets] = useState<Budget[]>([])
-  const [fiscalYears, setFiscalYears] = useState<FiscalYear[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [subcategories, setSubcategories] = useState<Subcategory[]>([])
-  const [forecasts, setForecasts] = useState<BudgetForecast[]>([])
-
+  const [forecastRows, setForecastRows] = useState<ForecastRow[]>([])
   const [selectedBudgetId, setSelectedBudgetId] = useState('')
-  const [selectedFiscalYearId, setSelectedFiscalYearId] = useState('')
-  const [selectedKind, setSelectedKind] = useState<'income' | 'expense'>('expense')
-
-  const [amounts, setAmounts] = useState<Record<string, string>>({})
+  const [values, setValues] = useState<Record<string, string>>({})
+  const [message, setMessage] = useState('')
 
   useEffect(() => {
     load()
   }, [])
 
+  useEffect(() => {
+    if (!selectedBudgetId) return
+
+    const selectedRows = forecastRows.filter(
+      (row) => row.budget_id === selectedBudgetId
+    )
+
+    const nextValues: Record<string, string> = {}
+
+    for (const row of selectedRows) {
+      if (
+        (row.kind !== 'income' && row.kind !== 'expense') ||
+        !row.subcategory_id
+      ) {
+        continue
+      }
+
+      nextValues[keyOf(row.kind, row.subcategory_id)] = centsToInputValue(
+        row.amount_cents ?? 0
+      )
+    }
+
+    setValues(nextValues)
+  }, [selectedBudgetId, forecastRows])
+
   async function load() {
     setLoading(true)
+    setMessage('')
 
     const [
-      { data: b, error: e1 },
-      { data: fy, error: e2 },
-      { data: c, error: e3 },
-      { data: s, error: e4 },
-      { data: f, error: e5 },
+      { data: budgetsData, error: e1 },
+      { data: categoriesData, error: e2 },
+      { data: subcategoriesData, error: e3 },
+      { data: forecastsData, error: e4 },
     ] = await Promise.all([
-      supabase.from('budgets').select('id,name,is_archived,ordre').order('ordre'),
-      supabase.from('fiscal_years').select('id,year,start_date,end_date').order('year', { ascending: false }),
-      supabase.from('categories').select('id,budget_id,kind,name,ordre').order('ordre'),
-      supabase.from('subcategories').select('id,category_id,name,ordre').order('ordre'),
-      supabase.from('budget_forecasts').select('*').order('ordre'),
+      supabase
+        .from('budgets')
+        .select('id,name,ordre')
+        .eq('is_archived', false)
+        .order('ordre'),
+
+      supabase
+        .from('categories')
+        .select('id,name')
+        .order('name'),
+
+      supabase
+        .from('subcategories')
+        .select('id,name,category_id')
+        .order('name'),
+
+      supabase
+        .from('budget_forecasts')
+        .select('budget_id,kind,category_id,subcategory_id,amount_cents'),
     ])
 
-    if (e1 || e2 || e3 || e4 || e5) {
-      console.error(e1 || e2 || e3 || e4 || e5)
-      alert('Erreur chargement prévisionnel')
+    if (e1 || e2 || e3 || e4) {
+      console.error(e1 || e2 || e3 || e4)
+      alert('Erreur chargement admin prévisionnel')
       setLoading(false)
       return
     }
 
-    const budgetsData = (b ?? []) as Budget[]
-    const fiscalYearsData = (fy ?? []) as FiscalYear[]
+    const loadedBudgets = (budgetsData ?? []) as Budget[]
+    setBudgets(loadedBudgets)
+    setCategories((categoriesData ?? []) as Category[])
+    setSubcategories((subcategoriesData ?? []) as Subcategory[])
+    setForecastRows((forecastsData ?? []) as ForecastRow[])
 
-    setBudgets(budgetsData)
-    setFiscalYears(fiscalYearsData)
-    setCategories((c ?? []) as Category[])
-    setSubcategories((s ?? []) as Subcategory[])
-    setForecasts((f ?? []) as BudgetForecast[])
-
-    if (!selectedBudgetId && budgetsData.length) {
-      const firstActive = budgetsData.find((x) => !x.is_archived) ?? budgetsData[0]
-      setSelectedBudgetId(firstActive.id)
-    }
-
-    if (!selectedFiscalYearId && fiscalYearsData.length) {
-      setSelectedFiscalYearId(fiscalYearsData[0].id)
+    if (loadedBudgets.length > 0) {
+      setSelectedBudgetId((prev) => prev || loadedBudgets[0].id)
     }
 
     setLoading(false)
   }
 
-  const visibleCategories = useMemo(() => {
-    return categories
-      .filter((c) => c.budget_id === selectedBudgetId && c.kind === selectedKind)
-      .sort((a, b) => a.ordre - b.ordre || a.name.localeCompare(b.name))
-  }, [categories, selectedBudgetId, selectedKind])
+  function updateValue(kind: 'income' | 'expense', subcategoryId: string, value: string) {
+    setValues((prev) => ({
+      ...prev,
+      [keyOf(kind, subcategoryId)]: value,
+    }))
+  }
 
-  const lines = useMemo<ForecastLine[]>(() => {
-    const out: ForecastLine[] = []
+  const categoriesWithSubs = useMemo(() => {
+    return categories.map((category) => ({
+      ...category,
+      subcategories: subcategories.filter((s) => s.category_id === category.id),
+    }))
+  }, [categories, subcategories])
 
-    for (const c of visibleCategories) {
-      const subs = subcategories
-        .filter((s) => s.category_id === c.id)
-        .sort((a, b) => a.ordre - b.ordre || a.name.localeCompare(b.name))
+  const expenseTotalCents = useMemo(() => {
+    return subcategories.reduce((sum, sub) => {
+      return sum + eurosStringToCents(values[keyOf('expense', sub.id)] ?? '')
+    }, 0)
+  }, [subcategories, values])
 
-      if (subs.length === 0) {
-        out.push({
-          key: `${c.id}__`,
-          category_id: c.id,
-          subcategory_id: null,
-          label: c.name,
-          ordre: c.ordre,
-        })
-      } else {
-        for (const s of subs) {
-          out.push({
-            key: `${c.id}__${s.id}`,
-            category_id: c.id,
-            subcategory_id: s.id,
-            label: `${c.name} • ${s.name}`,
-            ordre: c.ordre * 1000 + s.ordre,
-          })
-        }
-      }
+  const incomeTotalCents = useMemo(() => {
+    return subcategories.reduce((sum, sub) => {
+      return sum + eurosStringToCents(values[keyOf('income', sub.id)] ?? '')
+    }, 0)
+  }, [subcategories, values])
+
+  const isBalanced = expenseTotalCents === incomeTotalCents
+
+  async function saveBudgetForecast() {
+    if (!selectedBudgetId) {
+      alert('Choisis un budget')
+      return
     }
-
-    return out
-  }, [visibleCategories, subcategories])
-
-  useEffect(() => {
-    if (!selectedBudgetId || !selectedFiscalYearId) return
-
-    const nextAmounts: Record<string, string> = {}
-
-    for (const line of lines) {
-      const existing = forecasts.find(
-        (f) =>
-          f.budget_id === selectedBudgetId &&
-          f.fiscal_year_id === selectedFiscalYearId &&
-          f.kind === selectedKind &&
-          f.category_id === line.category_id &&
-          (f.subcategory_id ?? '') === (line.subcategory_id ?? '')
-      )
-
-      nextAmounts[line.key] = existing ? centsToEuros(existing.amount_cents) : ''
-    }
-
-    setAmounts(nextAmounts)
-  }, [selectedBudgetId, selectedFiscalYearId, selectedKind, lines, forecasts])
-
-  const totalForecast = useMemo(() => {
-    return Object.values(amounts).reduce((sum, x) => sum + eurosToCents(x), 0)
-  }, [amounts])
-
-  async function saveAll() {
-    if (!selectedBudgetId || !selectedFiscalYearId) return
 
     setSaving(true)
+    setMessage('')
 
     try {
-      const { error: delErr } = await supabase
+      const { error: deleteError } = await supabase
         .from('budget_forecasts')
         .delete()
         .eq('budget_id', selectedBudgetId)
-        .eq('fiscal_year_id', selectedFiscalYearId)
-        .eq('kind', selectedKind)
 
-      if (delErr) throw delErr
+      if (deleteError) throw deleteError
 
-      const rows = lines
-        .map((line, index) => ({
-          budget_id: selectedBudgetId,
-          fiscal_year_id: selectedFiscalYearId,
-          kind: selectedKind,
-          category_id: line.category_id,
-          subcategory_id: line.subcategory_id,
-          amount_cents: eurosToCents(amounts[line.key] ?? ''),
-          ordre: index + 1,
-        }))
-        .filter((r) => r.amount_cents > 0)
+      const rowsToInsert: {
+        budget_id: string
+        kind: 'income' | 'expense'
+        category_id: string | null
+        subcategory_id: string
+        amount_cents: number
+        updated_at: string
+      }[] = []
 
-      if (rows.length > 0) {
-        const { error: insErr } = await supabase.from('budget_forecasts').insert(rows)
-        if (insErr) throw insErr
+      for (const sub of subcategories) {
+        const expenseCents = eurosStringToCents(values[keyOf('expense', sub.id)] ?? '')
+        const incomeCents = eurosStringToCents(values[keyOf('income', sub.id)] ?? '')
+
+        if (expenseCents > 0) {
+          rowsToInsert.push({
+            budget_id: selectedBudgetId,
+            kind: 'expense',
+            category_id: sub.category_id,
+            subcategory_id: sub.id,
+            amount_cents: expenseCents,
+            updated_at: new Date().toISOString(),
+          })
+        }
+
+        if (incomeCents > 0) {
+          rowsToInsert.push({
+            budget_id: selectedBudgetId,
+            kind: 'income',
+            category_id: sub.category_id,
+            subcategory_id: sub.id,
+            amount_cents: incomeCents,
+            updated_at: new Date().toISOString(),
+          })
+        }
       }
 
-      alert('✅ Prévisionnel sauvegardé')
+      if (rowsToInsert.length > 0) {
+        const { error: insertError } = await supabase
+          .from('budget_forecasts')
+          .insert(rowsToInsert)
+
+        if (insertError) throw insertError
+      }
+
+      setMessage('✅ Prévisionnel sauvegardé')
       await load()
     } catch (e: any) {
       console.error(e)
-      alert('Erreur sauvegarde prévisionnel')
+      alert(`Erreur sauvegarde prévisionnel : ${e?.message ?? 'inconnue'}`)
     } finally {
       setSaving(false)
     }
   }
 
   if (loading) {
-    return <main style={{ padding: 24, fontFamily: 'system-ui' }}>Chargement…</main>
+    return (
+      <main style={{ padding: 24, fontFamily: 'system-ui' }}>
+        Chargement…
+      </main>
+    )
   }
 
   return (
-    <main style={{ padding: 24, fontFamily: 'system-ui', maxWidth: 1100 }}>
-      <h1 style={{ fontSize: 26, fontWeight: 900 }}>Admin — Prévisionnel</h1>
+    <main style={{ padding: 24, fontFamily: 'system-ui', maxWidth: 1400 }}>
+      <h1 style={{ fontSize: 28, fontWeight: 900 }}>Admin prévisionnel</h1>
 
       <div
         style={{
-          marginTop: 20,
+          marginTop: 18,
           display: 'flex',
-          gap: 10,
-          flexWrap: 'wrap',
+          gap: 12,
           alignItems: 'center',
+          flexWrap: 'wrap',
         }}
       >
+        <label style={{ fontWeight: 700 }}>Budget :</label>
+
         <select
           value={selectedBudgetId}
           onChange={(e) => setSelectedBudgetId(e.target.value)}
-          style={{ padding: 8, minWidth: 220 }}
+          style={{
+            padding: '10px 12px',
+            borderRadius: 8,
+            border: '1px solid #ccc',
+            minWidth: 260,
+          }}
         >
-          <option value="">Budget</option>
-          {budgets
-            .filter((b) => !b.is_archived)
-            .sort((a, b) => a.ordre - b.ordre || a.name.localeCompare(b.name))
-            .map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-        </select>
-
-        <select
-          value={selectedFiscalYearId}
-          onChange={(e) => setSelectedFiscalYearId(e.target.value)}
-          style={{ padding: 8, minWidth: 140 }}
-        >
-          <option value="">Année</option>
-          {fiscalYears.map((fy) => (
-            <option key={fy.id} value={fy.id}>
-              {fy.year}
+          {budgets.map((budget) => (
+            <option key={budget.id} value={budget.id}>
+              {budget.name}
             </option>
           ))}
         </select>
 
-        <select
-          value={selectedKind}
-          onChange={(e) => setSelectedKind(e.target.value as 'income' | 'expense')}
-          style={{ padding: 8, minWidth: 140 }}
+        <button
+          onClick={saveBudgetForecast}
+          disabled={saving || !selectedBudgetId}
+          style={{
+            padding: '10px 14px',
+            borderRadius: 8,
+            border: '1px solid #ccc',
+            background: 'white',
+            cursor: 'pointer',
+          }}
         >
-          <option value="expense">Dépenses</option>
-          <option value="income">Recettes</option>
-        </select>
-
-        <button onClick={saveAll} disabled={saving || !selectedBudgetId || !selectedFiscalYearId}>
           {saving ? 'Sauvegarde…' : 'Sauvegarder'}
         </button>
+
+        {message && <div style={{ fontWeight: 700 }}>{message}</div>}
       </div>
 
-      <div style={{ marginTop: 12, fontSize: 15 }}>
-        Total prévisionnel : <b>{centsToEuros(totalForecast)} €</b>
-      </div>
+      <div
+        style={{
+          marginTop: 22,
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr auto',
+          gap: 16,
+          alignItems: 'stretch',
+        }}
+      >
+        <div
+          style={{
+            border: '1px solid #f0cfcf',
+            background: '#fff6f6',
+            borderRadius: 14,
+            padding: 16,
+          }}
+        >
+          <div style={{ fontSize: 15, opacity: 0.75 }}>Total prévisionnel dépenses</div>
+          <div style={{ marginTop: 8, fontSize: 30, fontWeight: 900 }}>
+            {centsToEuros(expenseTotalCents)} €
+          </div>
+        </div>
 
-      <div style={{ marginTop: 20, display: 'grid', gap: 10 }}>
-        {lines.map((line) => (
+        <div
+          style={{
+            border: '1px solid #cfe8cf',
+            background: '#f5fff5',
+            borderRadius: 14,
+            padding: 16,
+          }}
+        >
+          <div style={{ fontSize: 15, opacity: 0.75 }}>Total prévisionnel recettes</div>
+          <div style={{ marginTop: 8, fontSize: 30, fontWeight: 900 }}>
+            {centsToEuros(incomeTotalCents)} €
+          </div>
+        </div>
+
+        <div
+          style={{
+            border: '1px solid #ddd',
+            background: isBalanced ? '#f2fff2' : '#fff8e8',
+            borderRadius: 14,
+            padding: 16,
+            minWidth: 220,
+          }}
+        >
+          <div style={{ fontSize: 15, opacity: 0.75 }}>Équilibre</div>
           <div
-            key={line.key}
             style={{
-              border: '1px solid #eee',
-              borderRadius: 10,
-              padding: 12,
-              display: 'grid',
-              gridTemplateColumns: '1fr 180px',
-              gap: 12,
-              alignItems: 'center',
+              marginTop: 8,
+              fontSize: 24,
+              fontWeight: 900,
+              color: isBalanced ? 'green' : '#a06a00',
             }}
           >
-            <div>{line.label}</div>
-
-            <input
-              value={amounts[line.key] ?? ''}
-              onChange={(e) =>
-                setAmounts((prev) => ({
-                  ...prev,
-                  [line.key]: e.target.value,
-                }))
-              }
-              placeholder="0,00"
-              style={{ padding: 8 }}
-            />
+            {isBalanced ? 'Équilibré' : 'À ajuster'}
           </div>
-        ))}
-
-        {lines.length === 0 && (
-          <div style={{ opacity: 0.7 }}>
-            Aucune ligne pour ce budget / type.
+          <div style={{ marginTop: 8, fontSize: 14, opacity: 0.75 }}>
+            Écart : {centsToEuros(incomeTotalCents - expenseTotalCents)} €
           </div>
-        )}
+        </div>
+      </div>
+
+      <div
+        style={{
+          marginTop: 26,
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: 20,
+          alignItems: 'start',
+        }}
+      >
+        <section
+          style={{
+            border: '1px solid #f0cfcf',
+            background: '#fffafa',
+            borderRadius: 14,
+            padding: 18,
+          }}
+        >
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Dépenses</h2>
+
+          <div style={{ marginTop: 18, display: 'grid', gap: 18 }}>
+            {categoriesWithSubs.map((category) => {
+              const categoryTotal = category.subcategories.reduce((sum, sub) => {
+                return sum + eurosStringToCents(values[keyOf('expense', sub.id)] ?? '')
+              }, 0)
+
+              return (
+                <div key={`expense-${category.id}`}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      fontWeight: 800,
+                      fontSize: 16,
+                      marginBottom: 10,
+                    }}
+                  >
+                    <div>{category.name}</div>
+                    <div>{centsToEuros(categoryTotal)} €</div>
+                  </div>
+
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {category.subcategories.map((sub) => (
+                      <div
+                        key={`expense-${sub.id}`}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '1fr 140px',
+                          gap: 12,
+                          alignItems: 'center',
+                        }}
+                      >
+                        <div style={{ paddingLeft: 12 }}>{sub.name}</div>
+
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={values[keyOf('expense', sub.id)] ?? ''}
+                          onChange={(e) => updateValue('expense', sub.id, e.target.value)}
+                          placeholder="0.00"
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: 8,
+                            border: '1px solid #ccc',
+                            textAlign: 'right',
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+
+        <section
+          style={{
+            border: '1px solid #cfe8cf',
+            background: '#f9fff9',
+            borderRadius: 14,
+            padding: 18,
+          }}
+        >
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Recettes</h2>
+
+          <div style={{ marginTop: 18, display: 'grid', gap: 18 }}>
+            {categoriesWithSubs.map((category) => {
+              const categoryTotal = category.subcategories.reduce((sum, sub) => {
+                return sum + eurosStringToCents(values[keyOf('income', sub.id)] ?? '')
+              }, 0)
+
+              return (
+                <div key={`income-${category.id}`}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      fontWeight: 800,
+                      fontSize: 16,
+                      marginBottom: 10,
+                    }}
+                  >
+                    <div>{category.name}</div>
+                    <div>{centsToEuros(categoryTotal)} €</div>
+                  </div>
+
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {category.subcategories.map((sub) => (
+                      <div
+                        key={`income-${sub.id}`}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '1fr 140px',
+                          gap: 12,
+                          alignItems: 'center',
+                        }}
+                      >
+                        <div style={{ paddingLeft: 12 }}>{sub.name}</div>
+
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={values[keyOf('income', sub.id)] ?? ''}
+                          onChange={(e) => updateValue('income', sub.id, e.target.value)}
+                          placeholder="0.00"
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: 8,
+                            border: '1px solid #ccc',
+                            textAlign: 'right',
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
       </div>
     </main>
   )
 }
+
