@@ -28,9 +28,13 @@ type ForecastRow = {
   amount_cents: number | null
 }
 
-type AllocationRow = {
+type CategoryMappingRow = {
   budget_id: string | null
   category_id: string | null
+}
+
+type SubcategoryMappingRow = {
+  budget_id: string | null
   subcategory_id: string | null
 }
 
@@ -57,11 +61,14 @@ function keyOf(kind: 'income' | 'expense', subcategoryId: string) {
 export default function AdminPrevisionnelPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+
   const [budgets, setBudgets] = useState<Budget[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [subcategories, setSubcategories] = useState<Subcategory[]>([])
   const [forecastRows, setForecastRows] = useState<ForecastRow[]>([])
-  const [allocationRows, setAllocationRows] = useState<AllocationRow[]>([])
+  const [categoryMappings, setCategoryMappings] = useState<CategoryMappingRow[]>([])
+  const [subcategoryMappings, setSubcategoryMappings] = useState<SubcategoryMappingRow[]>([])
+
   const [selectedBudgetId, setSelectedBudgetId] = useState('')
   const [values, setValues] = useState<Record<string, string>>({})
   const [message, setMessage] = useState('')
@@ -104,7 +111,8 @@ export default function AdminPrevisionnelPage() {
       { data: categoriesData, error: e2 },
       { data: subcategoriesData, error: e3 },
       { data: forecastsData, error: e4 },
-      { data: allocationsData, error: e5 },
+      { data: categoryMappingsData, error: e5 },
+      { data: subcategoryMappingsData, error: e6 },
     ] = await Promise.all([
       supabase
         .from('budgets')
@@ -127,23 +135,29 @@ export default function AdminPrevisionnelPage() {
         .select('budget_id,kind,category_id,subcategory_id,amount_cents'),
 
       supabase
-        .from('transaction_allocations')
-        .select('budget_id,category_id,subcategory_id'),
+        .from('category_mapping')
+        .select('budget_id,category_id'),
+
+      supabase
+        .from('subcategory_mapping')
+        .select('budget_id,subcategory_id'),
     ])
 
-    if (e1 || e2 || e3 || e4 || e5) {
-      console.error(e1 || e2 || e3 || e4 || e5)
+    if (e1 || e2 || e3 || e4 || e5 || e6) {
+      console.error(e1 || e2 || e3 || e4 || e5 || e6)
       alert('Erreur chargement admin prévisionnel')
       setLoading(false)
       return
     }
 
     const loadedBudgets = (budgetsData ?? []) as Budget[]
+
     setBudgets(loadedBudgets)
     setCategories((categoriesData ?? []) as Category[])
     setSubcategories((subcategoriesData ?? []) as Subcategory[])
     setForecastRows((forecastsData ?? []) as ForecastRow[])
-    setAllocationRows((allocationsData ?? []) as AllocationRow[])
+    setCategoryMappings((categoryMappingsData ?? []) as CategoryMappingRow[])
+    setSubcategoryMappings((subcategoryMappingsData ?? []) as SubcategoryMappingRow[])
 
     if (loadedBudgets.length > 0) {
       setSelectedBudgetId((prev) => prev || loadedBudgets[0].id)
@@ -159,29 +173,29 @@ export default function AdminPrevisionnelPage() {
     }))
   }
 
-  const visibleSubcategoryIds = useMemo(() => {
-    if (!selectedBudgetId) return new Set<string>()
+  const allowedCategoryIds = useMemo(() => {
+    return new Set(
+      categoryMappings
+        .filter((row) => row.budget_id === selectedBudgetId && row.category_id)
+        .map((row) => row.category_id as string)
+    )
+  }, [categoryMappings, selectedBudgetId])
 
-    const ids = new Set<string>()
-
-    for (const row of allocationRows) {
-      if (row.budget_id === selectedBudgetId && row.subcategory_id) {
-        ids.add(row.subcategory_id)
-      }
-    }
-
-    for (const row of forecastRows) {
-      if (row.budget_id === selectedBudgetId && row.subcategory_id) {
-        ids.add(row.subcategory_id)
-      }
-    }
-
-    return ids
-  }, [selectedBudgetId, allocationRows, forecastRows])
+  const allowedSubcategoryIds = useMemo(() => {
+    return new Set(
+      subcategoryMappings
+        .filter((row) => row.budget_id === selectedBudgetId && row.subcategory_id)
+        .map((row) => row.subcategory_id as string)
+    )
+  }, [subcategoryMappings, selectedBudgetId])
 
   const visibleSubcategories = useMemo(() => {
-    return subcategories.filter((s) => visibleSubcategoryIds.has(s.id))
-  }, [subcategories, visibleSubcategoryIds])
+    return subcategories.filter((sub) => {
+      if (allowedSubcategoryIds.has(sub.id)) return true
+      if (sub.category_id && allowedCategoryIds.has(sub.category_id)) return true
+      return false
+    })
+  }, [subcategories, allowedSubcategoryIds, allowedCategoryIds])
 
   const categoriesWithSubs = useMemo(() => {
     return categories
@@ -408,7 +422,7 @@ export default function AdminPrevisionnelPage() {
             opacity: 0.8,
           }}
         >
-          Aucune catégorie liée à ce budget pour l’instant.
+          Aucune catégorie liée à ce budget dans le référentiel admin.
         </div>
       ) : (
         <div
