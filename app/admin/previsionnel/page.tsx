@@ -28,6 +28,12 @@ type ForecastRow = {
   amount_cents: number | null
 }
 
+type AllocationRow = {
+  budget_id: string | null
+  category_id: string | null
+  subcategory_id: string | null
+}
+
 function centsToEuros(cents: number) {
   return (cents / 100).toFixed(2)
 }
@@ -55,6 +61,7 @@ export default function AdminPrevisionnelPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [subcategories, setSubcategories] = useState<Subcategory[]>([])
   const [forecastRows, setForecastRows] = useState<ForecastRow[]>([])
+  const [allocationRows, setAllocationRows] = useState<AllocationRow[]>([])
   const [selectedBudgetId, setSelectedBudgetId] = useState('')
   const [values, setValues] = useState<Record<string, string>>({})
   const [message, setMessage] = useState('')
@@ -97,6 +104,7 @@ export default function AdminPrevisionnelPage() {
       { data: categoriesData, error: e2 },
       { data: subcategoriesData, error: e3 },
       { data: forecastsData, error: e4 },
+      { data: allocationsData, error: e5 },
     ] = await Promise.all([
       supabase
         .from('budgets')
@@ -117,10 +125,14 @@ export default function AdminPrevisionnelPage() {
       supabase
         .from('budget_forecasts')
         .select('budget_id,kind,category_id,subcategory_id,amount_cents'),
+
+      supabase
+        .from('transaction_allocations')
+        .select('budget_id,category_id,subcategory_id'),
     ])
 
-    if (e1 || e2 || e3 || e4) {
-      console.error(e1 || e2 || e3 || e4)
+    if (e1 || e2 || e3 || e4 || e5) {
+      console.error(e1 || e2 || e3 || e4 || e5)
       alert('Erreur chargement admin prévisionnel')
       setLoading(false)
       return
@@ -131,6 +143,7 @@ export default function AdminPrevisionnelPage() {
     setCategories((categoriesData ?? []) as Category[])
     setSubcategories((subcategoriesData ?? []) as Subcategory[])
     setForecastRows((forecastsData ?? []) as ForecastRow[])
+    setAllocationRows((allocationsData ?? []) as AllocationRow[])
 
     if (loadedBudgets.length > 0) {
       setSelectedBudgetId((prev) => prev || loadedBudgets[0].id)
@@ -146,24 +159,50 @@ export default function AdminPrevisionnelPage() {
     }))
   }
 
+  const visibleSubcategoryIds = useMemo(() => {
+    if (!selectedBudgetId) return new Set<string>()
+
+    const ids = new Set<string>()
+
+    for (const row of allocationRows) {
+      if (row.budget_id === selectedBudgetId && row.subcategory_id) {
+        ids.add(row.subcategory_id)
+      }
+    }
+
+    for (const row of forecastRows) {
+      if (row.budget_id === selectedBudgetId && row.subcategory_id) {
+        ids.add(row.subcategory_id)
+      }
+    }
+
+    return ids
+  }, [selectedBudgetId, allocationRows, forecastRows])
+
+  const visibleSubcategories = useMemo(() => {
+    return subcategories.filter((s) => visibleSubcategoryIds.has(s.id))
+  }, [subcategories, visibleSubcategoryIds])
+
   const categoriesWithSubs = useMemo(() => {
-    return categories.map((category) => ({
-      ...category,
-      subcategories: subcategories.filter((s) => s.category_id === category.id),
-    }))
-  }, [categories, subcategories])
+    return categories
+      .map((category) => ({
+        ...category,
+        subcategories: visibleSubcategories.filter((s) => s.category_id === category.id),
+      }))
+      .filter((category) => category.subcategories.length > 0)
+  }, [categories, visibleSubcategories])
 
   const expenseTotalCents = useMemo(() => {
-    return subcategories.reduce((sum, sub) => {
+    return visibleSubcategories.reduce((sum, sub) => {
       return sum + eurosStringToCents(values[keyOf('expense', sub.id)] ?? '')
     }, 0)
-  }, [subcategories, values])
+  }, [visibleSubcategories, values])
 
   const incomeTotalCents = useMemo(() => {
-    return subcategories.reduce((sum, sub) => {
+    return visibleSubcategories.reduce((sum, sub) => {
       return sum + eurosStringToCents(values[keyOf('income', sub.id)] ?? '')
     }, 0)
-  }, [subcategories, values])
+  }, [visibleSubcategories, values])
 
   const isBalanced = expenseTotalCents === incomeTotalCents
 
@@ -190,10 +229,10 @@ export default function AdminPrevisionnelPage() {
         category_id: string | null
         subcategory_id: string
         amount_cents: number
-        updated_at: string
+        updated_at?: string
       }[] = []
 
-      for (const sub of subcategories) {
+      for (const sub of visibleSubcategories) {
         const expenseCents = eurosStringToCents(values[keyOf('expense', sub.id)] ?? '')
         const incomeCents = eurosStringToCents(values[keyOf('income', sub.id)] ?? '')
 
@@ -358,152 +397,166 @@ export default function AdminPrevisionnelPage() {
         </div>
       </div>
 
-      <div
-        style={{
-          marginTop: 26,
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: 20,
-          alignItems: 'start',
-        }}
-      >
-        <section
+      {categoriesWithSubs.length === 0 ? (
+        <div
           style={{
-            border: '1px solid #f0cfcf',
-            background: '#fffafa',
-            borderRadius: 14,
-            padding: 18,
+            marginTop: 24,
+            padding: 16,
+            border: '1px solid #eee',
+            borderRadius: 12,
+            background: 'white',
+            opacity: 0.8,
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Dépenses</h2>
-
-          <div style={{ marginTop: 18, display: 'grid', gap: 18 }}>
-            {categoriesWithSubs.map((category) => {
-              const categoryTotal = category.subcategories.reduce((sum, sub) => {
-                return sum + eurosStringToCents(values[keyOf('expense', sub.id)] ?? '')
-              }, 0)
-
-              return (
-                <div key={`expense-${category.id}`}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      gap: 12,
-                      fontWeight: 800,
-                      fontSize: 16,
-                      marginBottom: 10,
-                    }}
-                  >
-                    <div>{category.name}</div>
-                    <div>{centsToEuros(categoryTotal)} €</div>
-                  </div>
-
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    {category.subcategories.map((sub) => (
-                      <div
-                        key={`expense-${sub.id}`}
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: '1fr 140px',
-                          gap: 12,
-                          alignItems: 'center',
-                        }}
-                      >
-                        <div style={{ paddingLeft: 12 }}>{sub.name}</div>
-
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={values[keyOf('expense', sub.id)] ?? ''}
-                          onChange={(e) => updateValue('expense', sub.id, e.target.value)}
-                          placeholder="0.00"
-                          style={{
-                            padding: '8px 10px',
-                            borderRadius: 8,
-                            border: '1px solid #ccc',
-                            textAlign: 'right',
-                          }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </section>
-
-        <section
+          Aucune catégorie liée à ce budget pour l’instant.
+        </div>
+      ) : (
+        <div
           style={{
-            border: '1px solid #cfe8cf',
-            background: '#f9fff9',
-            borderRadius: 14,
-            padding: 18,
+            marginTop: 26,
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 20,
+            alignItems: 'start',
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Recettes</h2>
+          <section
+            style={{
+              border: '1px solid #f0cfcf',
+              background: '#fffafa',
+              borderRadius: 14,
+              padding: 18,
+            }}
+          >
+            <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Dépenses</h2>
 
-          <div style={{ marginTop: 18, display: 'grid', gap: 18 }}>
-            {categoriesWithSubs.map((category) => {
-              const categoryTotal = category.subcategories.reduce((sum, sub) => {
-                return sum + eurosStringToCents(values[keyOf('income', sub.id)] ?? '')
-              }, 0)
+            <div style={{ marginTop: 18, display: 'grid', gap: 18 }}>
+              {categoriesWithSubs.map((category) => {
+                const categoryTotal = category.subcategories.reduce((sum, sub) => {
+                  return sum + eurosStringToCents(values[keyOf('expense', sub.id)] ?? '')
+                }, 0)
 
-              return (
-                <div key={`income-${category.id}`}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      gap: 12,
-                      fontWeight: 800,
-                      fontSize: 16,
-                      marginBottom: 10,
-                    }}
-                  >
-                    <div>{category.name}</div>
-                    <div>{centsToEuros(categoryTotal)} €</div>
-                  </div>
+                return (
+                  <div key={`expense-${category.id}`}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        fontWeight: 800,
+                        fontSize: 16,
+                        marginBottom: 10,
+                      }}
+                    >
+                      <div>{category.name}</div>
+                      <div>{centsToEuros(categoryTotal)} €</div>
+                    </div>
 
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    {category.subcategories.map((sub) => (
-                      <div
-                        key={`income-${sub.id}`}
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: '1fr 140px',
-                          gap: 12,
-                          alignItems: 'center',
-                        }}
-                      >
-                        <div style={{ paddingLeft: 12 }}>{sub.name}</div>
-
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={values[keyOf('income', sub.id)] ?? ''}
-                          onChange={(e) => updateValue('income', sub.id, e.target.value)}
-                          placeholder="0.00"
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {category.subcategories.map((sub) => (
+                        <div
+                          key={`expense-${sub.id}`}
                           style={{
-                            padding: '8px 10px',
-                            borderRadius: 8,
-                            border: '1px solid #ccc',
-                            textAlign: 'right',
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 140px',
+                            gap: 12,
+                            alignItems: 'center',
                           }}
-                        />
-                      </div>
-                    ))}
+                        >
+                          <div style={{ paddingLeft: 12 }}>{sub.name}</div>
+
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={values[keyOf('expense', sub.id)] ?? ''}
+                            onChange={(e) => updateValue('expense', sub.id, e.target.value)}
+                            placeholder="0.00"
+                            style={{
+                              padding: '8px 10px',
+                              borderRadius: 8,
+                              border: '1px solid #ccc',
+                              textAlign: 'right',
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      </div>
+                )
+              })}
+            </div>
+          </section>
+
+          <section
+            style={{
+              border: '1px solid #cfe8cf',
+              background: '#f9fff9',
+              borderRadius: 14,
+              padding: 18,
+            }}
+          >
+            <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Recettes</h2>
+
+            <div style={{ marginTop: 18, display: 'grid', gap: 18 }}>
+              {categoriesWithSubs.map((category) => {
+                const categoryTotal = category.subcategories.reduce((sum, sub) => {
+                  return sum + eurosStringToCents(values[keyOf('income', sub.id)] ?? '')
+                }, 0)
+
+                return (
+                  <div key={`income-${category.id}`}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        fontWeight: 800,
+                        fontSize: 16,
+                        marginBottom: 10,
+                      }}
+                    >
+                      <div>{category.name}</div>
+                      <div>{centsToEuros(categoryTotal)} €</div>
+                    </div>
+
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {category.subcategories.map((sub) => (
+                        <div
+                          key={`income-${sub.id}`}
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 140px',
+                            gap: 12,
+                            alignItems: 'center',
+                          }}
+                        >
+                          <div style={{ paddingLeft: 12 }}>{sub.name}</div>
+
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={values[keyOf('income', sub.id)] ?? ''}
+                            onChange={(e) => updateValue('income', sub.id, e.target.value)}
+                            placeholder="0.00"
+                            style={{
+                              padding: '8px 10px',
+                              borderRadius: 8,
+                              border: '1px solid #ccc',
+                              textAlign: 'right',
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   )
 }
-
