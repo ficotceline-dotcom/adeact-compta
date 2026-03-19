@@ -29,6 +29,34 @@ type ForecastRow = {
   amount_cents: number | null
 }
 
+type AllocationRow = {
+  budget_id: string | null
+  category_id: string | null
+  subcategory_id: string | null
+  transaction_id: string | null
+}
+
+type TransactionRow = {
+  id: string
+  kind: 'income' | 'expense' | string
+}
+
+type CategoryMappingRow = {
+  category_id: string | null
+  poste_cr: string | null
+}
+
+type SubcategoryMappingRow = {
+  subcategory_id: string | null
+  poste_cr: string | null
+}
+
+type BudgetCategoryBlock = {
+  id: string
+  name: string
+  subcategories: Subcategory[]
+}
+
 function centsToEuros(cents: number) {
   return (cents / 100).toFixed(2)
 }
@@ -49,6 +77,45 @@ function keyOf(kind: 'income' | 'expense', subcategoryId: string) {
   return `${kind}__${subcategoryId}`
 }
 
+function inferKindFromPosteCR(poste: string | null | undefined): 'income' | 'expense' | null {
+  if (!poste) return null
+  const p = poste.toLowerCase()
+
+  const incomeHints = [
+    'vente',
+    'ventes',
+    'cotisation',
+    'cotisations',
+    'mécénat',
+    'mecenat',
+    'subvention',
+    'subventions',
+    'produit',
+    'produits',
+    'prestations',
+    'prestation',
+    'concours publics',
+    'don',
+    'dons',
+  ]
+
+  const expenseHints = [
+    'achat',
+    'achats',
+    'charge',
+    'charges',
+    'fourniture',
+    'fournitures',
+    'autres achats',
+    'autres charges',
+  ]
+
+  if (incomeHints.some((hint) => p.includes(hint))) return 'income'
+  if (expenseHints.some((hint) => p.includes(hint))) return 'expense'
+
+  return null
+}
+
 export default function AdminPrevisionnelPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -57,6 +124,10 @@ export default function AdminPrevisionnelPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [subcategories, setSubcategories] = useState<Subcategory[]>([])
   const [forecastRows, setForecastRows] = useState<ForecastRow[]>([])
+  const [allocationRows, setAllocationRows] = useState<AllocationRow[]>([])
+  const [transactions, setTransactions] = useState<TransactionRow[]>([])
+  const [categoryMappings, setCategoryMappings] = useState<CategoryMappingRow[]>([])
+  const [subcategoryMappings, setSubcategoryMappings] = useState<SubcategoryMappingRow[]>([])
 
   const [selectedBudgetId, setSelectedBudgetId] = useState('')
   const [values, setValues] = useState<Record<string, string>>({})
@@ -94,67 +165,93 @@ export default function AdminPrevisionnelPage() {
 
   async function load() {
     setLoading(true)
+    setSaving(false)
     setMessage('')
     setDebugError('')
 
-    const budgetsRes = await supabase
-      .from('budgets')
-      .select('id,name,ordre')
-      .eq('is_archived', false)
-      .order('ordre')
+    const [
+      budgetsRes,
+      categoriesRes,
+      subcategoriesRes,
+      forecastsRes,
+      allocationsRes,
+      transactionsRes,
+      categoryMappingsRes,
+      subcategoryMappingsRes,
+    ] = await Promise.all([
+      supabase
+        .from('budgets')
+        .select('id,name,ordre')
+        .eq('is_archived', false)
+        .order('ordre'),
 
-    if (budgetsRes.error) {
-      console.error('budgets error', budgetsRes.error)
-      setDebugError(`budgets: ${budgetsRes.error.message}`)
-      alert('Erreur chargement admin prévisionnel')
-      setLoading(false)
-      return
-    }
+      supabase
+        .from('categories')
+        .select('id,name,budget_id')
+        .order('name'),
 
-    const categoriesRes = await supabase
-      .from('categories')
-      .select('id,name,budget_id')
-      .order('name')
+      supabase
+        .from('subcategories')
+        .select('id,name,category_id')
+        .order('name'),
 
-    if (categoriesRes.error) {
-      console.error('categories error', categoriesRes.error)
-      setDebugError(`categories: ${categoriesRes.error.message}`)
-      alert('Erreur chargement admin prévisionnel')
-      setLoading(false)
-      return
-    }
+      supabase
+        .from('budget_forecasts')
+        .select('budget_id,kind,category_id,subcategory_id,amount_cents'),
 
-    const subcategoriesRes = await supabase
-      .from('subcategories')
-      .select('id,name,category_id')
-      .order('name')
+      supabase
+        .from('transaction_allocations')
+        .select('budget_id,category_id,subcategory_id,transaction_id'),
 
-    if (subcategoriesRes.error) {
-      console.error('subcategories error', subcategoriesRes.error)
-      setDebugError(`subcategories: ${subcategoriesRes.error.message}`)
-      alert('Erreur chargement admin prévisionnel')
-      setLoading(false)
-      return
-    }
+      supabase
+        .from('transactions')
+        .select('id,kind'),
 
-    const forecastsRes = await supabase
-      .from('budget_forecasts')
-      .select('budget_id,kind,category_id,subcategory_id,amount_cents')
+      supabase
+        .from('category_mapping')
+        .select('category_id,poste_cr'),
 
-    if (forecastsRes.error) {
-      console.error('budget_forecasts error', forecastsRes.error)
-      setDebugError(`budget_forecasts: ${forecastsRes.error.message}`)
+      supabase
+        .from('subcategory_mapping')
+        .select('subcategory_id,poste_cr'),
+    ])
+
+    const firstError =
+      budgetsRes.error ||
+      categoriesRes.error ||
+      subcategoriesRes.error ||
+      forecastsRes.error ||
+      allocationsRes.error ||
+      transactionsRes.error ||
+      categoryMappingsRes.error ||
+      subcategoryMappingsRes.error
+
+    if (firstError) {
+      console.error({
+        budgets: budgetsRes.error,
+        categories: categoriesRes.error,
+        subcategories: subcategoriesRes.error,
+        forecasts: forecastsRes.error,
+        allocations: allocationsRes.error,
+        transactions: transactionsRes.error,
+        categoryMappings: categoryMappingsRes.error,
+        subcategoryMappings: subcategoryMappingsRes.error,
+      })
+      setDebugError(firstError.message)
       alert('Erreur chargement admin prévisionnel')
       setLoading(false)
       return
     }
 
     const loadedBudgets = (budgetsRes.data ?? []) as Budget[]
-
     setBudgets(loadedBudgets)
     setCategories((categoriesRes.data ?? []) as Category[])
     setSubcategories((subcategoriesRes.data ?? []) as Subcategory[])
     setForecastRows((forecastsRes.data ?? []) as ForecastRow[])
+    setAllocationRows((allocationsRes.data ?? []) as AllocationRow[])
+    setTransactions((transactionsRes.data ?? []) as TransactionRow[])
+    setCategoryMappings((categoryMappingsRes.data ?? []) as CategoryMappingRow[])
+    setSubcategoryMappings((subcategoryMappingsRes.data ?? []) as SubcategoryMappingRow[])
 
     if (loadedBudgets.length > 0) {
       setSelectedBudgetId((prev) => prev || loadedBudgets[0].id)
@@ -170,6 +267,38 @@ export default function AdminPrevisionnelPage() {
     }))
   }
 
+  const transactionKindMap = useMemo(() => {
+    const map = new Map<string, 'income' | 'expense'>()
+
+    for (const tx of transactions) {
+      if (tx.kind === 'income' || tx.kind === 'expense') {
+        map.set(tx.id, tx.kind)
+      }
+    }
+
+    return map
+  }, [transactions])
+
+  const categoryPosteMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const row of categoryMappings) {
+      if (row.category_id && row.poste_cr) {
+        map.set(row.category_id, row.poste_cr)
+      }
+    }
+    return map
+  }, [categoryMappings])
+
+  const subcategoryPosteMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const row of subcategoryMappings) {
+      if (row.subcategory_id && row.poste_cr) {
+        map.set(row.subcategory_id, row.poste_cr)
+      }
+    }
+    return map
+  }, [subcategoryMappings])
+
   const visibleCategories = useMemo(() => {
     return categories.filter((category) => category.budget_id === selectedBudgetId)
   }, [categories, selectedBudgetId])
@@ -184,26 +313,111 @@ export default function AdminPrevisionnelPage() {
     )
   }, [subcategories, visibleCategoryIds])
 
-  const categoriesWithSubs = useMemo(() => {
+  const forecastKindBySubcategory = useMemo(() => {
+    const map = new Map<string, 'income' | 'expense'>()
+
+    for (const row of forecastRows) {
+      if (
+        row.budget_id === selectedBudgetId &&
+        row.subcategory_id &&
+        (row.kind === 'income' || row.kind === 'expense')
+      ) {
+        map.set(row.subcategory_id, row.kind)
+      }
+    }
+
+    return map
+  }, [forecastRows, selectedBudgetId])
+
+  const actualKindBySubcategory = useMemo(() => {
+    const map = new Map<string, 'income' | 'expense'>()
+
+    for (const row of allocationRows) {
+      if (
+        row.budget_id === selectedBudgetId &&
+        row.subcategory_id &&
+        row.transaction_id
+      ) {
+        const txKind = transactionKindMap.get(row.transaction_id)
+        if (txKind) {
+          map.set(row.subcategory_id, txKind)
+        }
+      }
+    }
+
+    return map
+  }, [allocationRows, transactionKindMap, selectedBudgetId])
+
+  const categoryById = useMemo(() => {
+    const map = new Map<string, Category>()
+    for (const c of categories) map.set(c.id, c)
+    return map
+  }, [categories])
+
+  function resolveSubcategoryKind(sub: Subcategory): 'income' | 'expense' {
+    const byForecast = forecastKindBySubcategory.get(sub.id)
+    if (byForecast) return byForecast
+
+    const byActual = actualKindBySubcategory.get(sub.id)
+    if (byActual) return byActual
+
+    const subPoste = subcategoryPosteMap.get(sub.id)
+    const bySubPoste = inferKindFromPosteCR(subPoste)
+    if (bySubPoste) return bySubPoste
+
+    const category = sub.category_id ? categoryById.get(sub.category_id) : null
+    const catPoste = category?.id ? categoryPosteMap.get(category.id) : null
+    const byCatPoste = inferKindFromPosteCR(catPoste)
+    if (byCatPoste) return byCatPoste
+
+    return 'expense'
+  }
+
+  const expenseBlocks = useMemo<BudgetCategoryBlock[]>(() => {
     return visibleCategories
       .map((category) => ({
-        ...category,
-        subcategories: visibleSubcategories.filter((s) => s.category_id === category.id),
+        id: category.id,
+        name: category.name,
+        subcategories: visibleSubcategories.filter(
+          (s) => s.category_id === category.id && resolveSubcategoryKind(s) === 'expense'
+        ),
       }))
-      .filter((category) => category.subcategories.length > 0)
-  }, [visibleCategories, visibleSubcategories])
+      .filter((c) => c.subcategories.length > 0)
+  }, [visibleCategories, visibleSubcategories, forecastKindBySubcategory, actualKindBySubcategory, subcategoryPosteMap, categoryPosteMap])
+
+  const incomeBlocks = useMemo<BudgetCategoryBlock[]>(() => {
+    return visibleCategories
+      .map((category) => ({
+        id: category.id,
+        name: category.name,
+        subcategories: visibleSubcategories.filter(
+          (s) => s.category_id === category.id && resolveSubcategoryKind(s) === 'income'
+        ),
+      }))
+      .filter((c) => c.subcategories.length > 0)
+  }, [visibleCategories, visibleSubcategories, forecastKindBySubcategory, actualKindBySubcategory, subcategoryPosteMap, categoryPosteMap])
+
+  const expenseSubcategories = useMemo(
+    () => expenseBlocks.flatMap((b) => b.subcategories),
+    [expenseBlocks]
+  )
+
+  const incomeSubcategories = useMemo(
+    () => incomeBlocks.flatMap((b) => b.subcategories),
+    [incomeBlocks]
+  )
 
   const expenseTotalCents = useMemo(() => {
-    return visibleSubcategories.reduce((sum, sub) => {
+    return expenseSubcategories.reduce((sum, sub) => {
       return sum + eurosStringToCents(values[keyOf('expense', sub.id)] ?? '')
     }, 0)
-  }, [visibleSubcategories, values])
+  }, [expenseSubcategories, values])
 
   const incomeTotalCents = useMemo(() => {
-    return visibleSubcategories.reduce((sum, sub) => {
+    return incomeSubcategories.reduce((sum, sub) => {
       return sum + eurosStringToCents(values[keyOf('income', sub.id)] ?? '')
     }, 0)
-  }, [visibleSubcategories, values])
+  }, [incomeSubcategories, values])
 
   const isBalanced = expenseTotalCents === incomeTotalCents
 
@@ -233,27 +447,28 @@ export default function AdminPrevisionnelPage() {
         amount_cents: number
       }[] = []
 
-      for (const sub of visibleSubcategories) {
-        const expenseCents = eurosStringToCents(values[keyOf('expense', sub.id)] ?? '')
-        const incomeCents = eurosStringToCents(values[keyOf('income', sub.id)] ?? '')
-
-        if (expenseCents > 0) {
+      for (const sub of expenseSubcategories) {
+        const cents = eurosStringToCents(values[keyOf('expense', sub.id)] ?? '')
+        if (cents > 0) {
           rowsToInsert.push({
             budget_id: selectedBudgetId,
             kind: 'expense',
             category_id: sub.category_id,
             subcategory_id: sub.id,
-            amount_cents: expenseCents,
+            amount_cents: cents,
           })
         }
+      }
 
-        if (incomeCents > 0) {
+      for (const sub of incomeSubcategories) {
+        const cents = eurosStringToCents(values[keyOf('income', sub.id)] ?? '')
+        if (cents > 0) {
           rowsToInsert.push({
             budget_id: selectedBudgetId,
             kind: 'income',
             category_id: sub.category_id,
             subcategory_id: sub.id,
-            amount_cents: incomeCents,
+            amount_cents: cents,
           })
         }
       }
@@ -284,6 +499,8 @@ export default function AdminPrevisionnelPage() {
       </main>
     )
   }
+
+  const noData = expenseBlocks.length === 0 && incomeBlocks.length === 0
 
   return (
     <main style={{ padding: 24, fontFamily: 'system-ui', maxWidth: 1400 }}>
@@ -413,7 +630,7 @@ export default function AdminPrevisionnelPage() {
         </div>
       </div>
 
-      {categoriesWithSubs.length === 0 ? (
+      {noData ? (
         <div
           style={{
             marginTop: 24,
@@ -447,7 +664,7 @@ export default function AdminPrevisionnelPage() {
             <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Dépenses</h2>
 
             <div style={{ marginTop: 18, display: 'grid', gap: 18 }}>
-              {categoriesWithSubs.map((category) => {
+              {expenseBlocks.map((category) => {
                 const categoryTotal = category.subcategories.reduce((sum, sub) => {
                   return sum + eurosStringToCents(values[keyOf('expense', sub.id)] ?? '')
                 }, 0)
@@ -515,7 +732,7 @@ export default function AdminPrevisionnelPage() {
             <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Recettes</h2>
 
             <div style={{ marginTop: 18, display: 'grid', gap: 18 }}>
-              {categoriesWithSubs.map((category) => {
+              {incomeBlocks.map((category) => {
                 const categoryTotal = category.subcategories.reduce((sum, sub) => {
                   return sum + eurosStringToCents(values[keyOf('income', sub.id)] ?? '')
                 }, 0)
