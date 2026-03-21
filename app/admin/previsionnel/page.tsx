@@ -295,14 +295,6 @@ export default function AdminPrevisionnelPage() {
     return map
   }, [subcategoryMappings])
 
-  const categoryById = useMemo(() => {
-    const map = new Map<string, Category>()
-    for (const c of categories) {
-      map.set(c.id, c)
-    }
-    return map
-  }, [categories])
-
   const visibleCategories = useMemo(() => {
     return categories.filter((c) => c.budget_id === selectedBudgetId)
   }, [categories, selectedBudgetId])
@@ -448,27 +440,23 @@ export default function AdminPrevisionnelPage() {
   ])
 
   const expenseBlocks = useMemo<CategoryBlock[]>(() => {
-    return visibleCategories
-      .map((category) => ({
-        id: category.id,
-        name: category.name,
-        lines: displayLines.filter(
-          (line) => line.categoryId === category.id && line.kind === 'expense'
-        ),
-      }))
-      .filter((block) => block.lines.length > 0)
+    return visibleCategories.map((category) => ({
+      id: category.id,
+      name: category.name,
+      lines: displayLines.filter(
+        (line) => line.categoryId === category.id && line.kind === 'expense'
+      ),
+    }))
   }, [visibleCategories, displayLines])
 
   const incomeBlocks = useMemo<CategoryBlock[]>(() => {
-    return visibleCategories
-      .map((category) => ({
-        id: category.id,
-        name: category.name,
-        lines: displayLines.filter(
-          (line) => line.categoryId === category.id && line.kind === 'income'
-        ),
-      }))
-      .filter((block) => block.lines.length > 0)
+    return visibleCategories.map((category) => ({
+      id: category.id,
+      name: category.name,
+      lines: displayLines.filter(
+        (line) => line.categoryId === category.id && line.kind === 'income'
+      ),
+    }))
   }, [visibleCategories, displayLines])
 
   const expenseTotalCents = useMemo(() => {
@@ -519,10 +507,9 @@ export default function AdminPrevisionnelPage() {
         ordre: number
       }[] = []
 
-      const orderedLines = [...displayLines]
       let ordre = 1
 
-      for (const line of orderedLines) {
+      for (const line of displayLines) {
         const amount = eurosStringToCents(line.value)
         if (amount > 0) {
           rowsToInsert.push({
@@ -712,35 +699,32 @@ export default function AdminPrevisionnelPage() {
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Dépenses</h2>
 
           <div style={{ marginTop: 18, display: 'grid', gap: 18 }}>
-            {expenseBlocks.length === 0 ? (
-              <div style={{ opacity: 0.7 }}>Aucune dépense.</div>
-            ) : (
-              expenseBlocks.map((category) => (
-                <div key={`expense-${category.id}`}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      gap: 12,
-                      fontWeight: 800,
-                      fontSize: 16,
-                      marginBottom: 10,
-                    }}
-                  >
-                    <div>{category.name}</div>
-                    <div>
-                      {centsToEuros(
-                        category.lines.reduce(
-                          (sum, line) => sum + eurosStringToCents(line.value),
-                          0
-                        )
-                      )}{' '}
-                      €
-                    </div>
+            {expenseBlocks.map((category) => (
+              <div key={`expense-${category.id}`}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    fontWeight: 800,
+                    fontSize: 16,
+                    marginBottom: 10,
+                  }}
+                >
+                  <div>{category.name}</div>
+                  <div>
+                    {centsToEuros(
+                      category.lines.reduce((sum, line) => sum + eurosStringToCents(line.value), 0)
+                    )}{' '}
+                    €
                   </div>
+                </div>
 
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    {category.lines.map((line) => (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {category.lines.length === 0 ? (
+                    <div style={{ paddingLeft: 12, opacity: 0.5 }}>Aucune ligne en dépense</div>
+                  ) : (
+                    category.lines.map((line) => (
                       <div
                         key={keyOf(line.kind, line.categoryId, line.subcategoryId)}
                         style={{
@@ -767,11 +751,11 @@ export default function AdminPrevisionnelPage() {
                           }}
                         />
                       </div>
-                    ))}
-                  </div>
+                    ))
+                  )}
                 </div>
-              ))
-            )}
+              </div>
+            ))}
           </div>
         </section>
 
@@ -786,35 +770,32 @@ export default function AdminPrevisionnelPage() {
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Recettes</h2>
 
           <div style={{ marginTop: 18, display: 'grid', gap: 18 }}>
-            {incomeBlocks.length === 0 ? (
-              <div style={{ opacity: 0.7 }}>Aucune recette.</div>
-            ) : (
-              incomeBlocks.map((category) => (
-                <div key={`income-${category.id}`}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      gap: 12,
-                      fontWeight: 800,
-                      fontSize: 16,
-                      marginBottom: 10,
-                    }}
-                  >
-                    <div>{category.name}</div>
-                    <div>
-                      {centsToEuros(
-                        category.lines.reduce(
-                          (sum, line) => sum + eurosStringToCents(line.value),
-                          0
-                        )
-                      )}{' '}
-                      €
-                    </div>
+            {incomeBlocks.map((category) => (
+              <div key={`income-${category.id}`}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    fontWeight: 800,
+                    fontSize: 16,
+                    marginBottom: 10,
+                  }}
+                >
+                  <div>{category.name}</div>
+                  <div>
+                    {centsToEuros(
+                      category.lines.reduce((sum, line) => sum + eurosStringToCents(line.value), 0)
+                    )}{' '}
+                    €
                   </div>
+                </div>
 
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    {category.lines.map((line) => (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {category.lines.length === 0 ? (
+                    <div style={{ paddingLeft: 12, opacity: 0.5 }}>Aucune ligne en recette</div>
+                  ) : (
+                    category.lines.map((line) => (
                       <div
                         key={keyOf(line.kind, line.categoryId, line.subcategoryId)}
                         style={{
@@ -841,11 +822,11 @@ export default function AdminPrevisionnelPage() {
                           }}
                         />
                       </div>
-                    ))}
-                  </div>
+                    ))
+                  )}
                 </div>
-              ))
-            )}
+              </div>
+            ))}
           </div>
         </section>
       </div>
