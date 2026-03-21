@@ -9,7 +9,13 @@ type Budget = {
   ordre: number
 }
 
-type ForecastRow = Record<string, any>
+type ForecastRow = {
+  budget_id: string | null
+  kind: 'income' | 'expense' | string | null
+  category_id: string | null
+  subcategory_id: string | null
+  amount_cents: number | null
+}
 
 type AllocationRow = {
   budget_id: string | null
@@ -27,6 +33,7 @@ type TransactionRow = {
 type CategoryRow = {
   id: string
   name: string
+  budget_id: string | null
 }
 
 type SubcategoryRow = {
@@ -36,6 +43,7 @@ type SubcategoryRow = {
 }
 
 type DetailSubcategory = {
+  id: string
   name: string
   forecast_cents: number
   actual_cents: number
@@ -43,6 +51,7 @@ type DetailSubcategory = {
 }
 
 type DetailCategory = {
+  id: string
   name: string
   forecast_cents: number
   actual_cents: number
@@ -54,174 +63,15 @@ function centsToEuros(cents: number) {
   return (cents / 100).toFixed(2)
 }
 
+function signedEuros(cents: number) {
+  return `${cents > 0 ? '+' : ''}${centsToEuros(cents)} €`
+}
+
 function diffColor(kind: 'income' | 'expense', diff: number) {
   if (kind === 'expense') {
     return diff > 0 ? 'red' : 'green'
   }
   return diff < 0 ? 'red' : 'green'
-}
-
-function readBudgetId(row: ForecastRow): string | null {
-  return row?.budget_id ?? row?.budgetId ?? null
-}
-
-function readCategoryId(row: ForecastRow): string | null {
-  return row?.category_id ?? row?.categoryId ?? null
-}
-
-function readSubcategoryId(row: ForecastRow): string | null {
-  return row?.subcategory_id ?? row?.subcategoryId ?? null
-}
-
-function readKind(row: ForecastRow): 'income' | 'expense' | null {
-  const raw = row?.kind ?? row?.type ?? row?.forecast_type ?? row?.nature ?? null
-  if (raw === 'income' || raw === 'expense') return raw
-  if (raw === 'recette') return 'income'
-  if (raw === 'depense' || raw === 'dépense') return 'expense'
-  return null
-}
-
-function readAmountCents(row: ForecastRow): number {
-  const integerCandidates = [
-    row?.amount_cents,
-    row?.forecast_cents,
-    row?.planned_amount_cents,
-    row?.previsionnel_cents,
-    row?.montant_cents,
-  ]
-
-  for (const value of integerCandidates) {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return value
-    }
-  }
-
-  const decimalCandidates = [
-    row?.amount,
-    row?.forecast_amount,
-    row?.planned_amount,
-    row?.previsionnel,
-    row?.montant,
-  ]
-
-  for (const value of decimalCandidates) {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return Math.round(value * 100)
-    }
-  }
-
-  return 0
-}
-
-function buildDetailedComparison(
-  budgetId: string,
-  kind: 'income' | 'expense',
-  forecastRows: ForecastRow[],
-  allocationRows: AllocationRow[],
-  transactionKindMap: Map<string, 'income' | 'expense'>,
-  categoryMap: Map<string, string>,
-  subcategoryMap: Map<string, { name: string; category_id: string | null }>
-): DetailCategory[] {
-  const grouped = new Map<
-    string,
-    {
-      forecast_cents: number
-      actual_cents: number
-      subs: Map<
-        string,
-        {
-          forecast_cents: number
-          actual_cents: number
-        }
-      >
-    }
-  >()
-
-  for (const row of forecastRows) {
-    if (readBudgetId(row) !== budgetId) continue
-    if (readKind(row) !== kind) continue
-
-    const categoryName =
-      (readCategoryId(row) && categoryMap.get(readCategoryId(row)!)) || 'Sans catégorie'
-
-    const subcategoryName =
-      (readSubcategoryId(row) && subcategoryMap.get(readSubcategoryId(row)!)?.name) ||
-      'Sans sous-catégorie'
-
-    if (!grouped.has(categoryName)) {
-      grouped.set(categoryName, {
-        forecast_cents: 0,
-        actual_cents: 0,
-        subs: new Map(),
-      })
-    }
-
-    const cat = grouped.get(categoryName)!
-    const amount = readAmountCents(row)
-
-    cat.forecast_cents += amount
-
-    if (!cat.subs.has(subcategoryName)) {
-      cat.subs.set(subcategoryName, {
-        forecast_cents: 0,
-        actual_cents: 0,
-      })
-    }
-
-    cat.subs.get(subcategoryName)!.forecast_cents += amount
-  }
-
-  for (const row of allocationRows) {
-    if (row.budget_id !== budgetId) continue
-    if (!row.transaction_id) continue
-    if (transactionKindMap.get(row.transaction_id) !== kind) continue
-
-    const categoryName =
-      (row.category_id && categoryMap.get(row.category_id)) || 'Sans catégorie'
-
-    const subcategoryName =
-      (row.subcategory_id && subcategoryMap.get(row.subcategory_id)?.name) ||
-      'Sans sous-catégorie'
-
-    if (!grouped.has(categoryName)) {
-      grouped.set(categoryName, {
-        forecast_cents: 0,
-        actual_cents: 0,
-        subs: new Map(),
-      })
-    }
-
-    const cat = grouped.get(categoryName)!
-    const amount = row.amount_cents ?? 0
-
-    cat.actual_cents += amount
-
-    if (!cat.subs.has(subcategoryName)) {
-      cat.subs.set(subcategoryName, {
-        forecast_cents: 0,
-        actual_cents: 0,
-      })
-    }
-
-    cat.subs.get(subcategoryName)!.actual_cents += amount
-  }
-
-  return Array.from(grouped.entries())
-    .map(([name, value]) => ({
-      name,
-      forecast_cents: value.forecast_cents,
-      actual_cents: value.actual_cents,
-      diff_cents: value.actual_cents - value.forecast_cents,
-      subcategories: Array.from(value.subs.entries())
-        .map(([subName, subValue]) => ({
-          name: subName,
-          forecast_cents: subValue.forecast_cents,
-          actual_cents: subValue.actual_cents,
-          diff_cents: subValue.actual_cents - subValue.forecast_cents,
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name))
 }
 
 export default function PrevisionnelPage() {
@@ -243,75 +93,61 @@ export default function PrevisionnelPage() {
     setLoading(true)
     setErrorDetails('')
 
-    const budgetsRes = await supabase
-      .from('budgets')
-      .select('id,name,ordre')
-      .eq('is_archived', false)
-      .order('ordre')
+    const [
+      budgetsRes,
+      forecastsRes,
+      allocationsRes,
+      transactionsRes,
+      categoriesRes,
+      subcategoriesRes,
+    ] = await Promise.all([
+      supabase
+        .from('budgets')
+        .select('id,name,ordre')
+        .eq('is_archived', false)
+        .order('ordre'),
 
-    if (budgetsRes.error) {
-      console.error('budgets error', budgetsRes.error)
-      setErrorDetails(`budgets: ${budgetsRes.error.message}`)
-      alert('Erreur chargement prévisionnel')
-      setLoading(false)
-      return
-    }
+      supabase
+        .from('budget_forecasts')
+        .select('budget_id,kind,category_id,subcategory_id,amount_cents'),
 
-    const forecastsRes = await supabase
-      .from('budget_forecasts')
-      .select('*')
+      supabase
+        .from('transaction_allocations')
+        .select('budget_id,transaction_id,category_id,subcategory_id,amount_cents'),
 
-    if (forecastsRes.error) {
-      console.error('budget_forecasts error', forecastsRes.error)
-      setErrorDetails(`budget_forecasts: ${forecastsRes.error.message}`)
-      alert('Erreur chargement prévisionnel')
-      setLoading(false)
-      return
-    }
+      supabase
+        .from('transactions')
+        .select('id,kind'),
 
-    const allocationsRes = await supabase
-      .from('transaction_allocations')
-      .select('budget_id,transaction_id,category_id,subcategory_id,amount_cents')
+      supabase
+        .from('categories')
+        .select('id,name,budget_id')
+        .order('name'),
 
-    if (allocationsRes.error) {
-      console.error('transaction_allocations error', allocationsRes.error)
-      setErrorDetails(`transaction_allocations: ${allocationsRes.error.message}`)
-      alert('Erreur chargement prévisionnel')
-      setLoading(false)
-      return
-    }
+      supabase
+        .from('subcategories')
+        .select('id,name,category_id')
+        .order('name'),
+    ])
 
-    const transactionsRes = await supabase
-      .from('transactions')
-      .select('id,kind')
+    const firstError =
+      budgetsRes.error ||
+      forecastsRes.error ||
+      allocationsRes.error ||
+      transactionsRes.error ||
+      categoriesRes.error ||
+      subcategoriesRes.error
 
-    if (transactionsRes.error) {
-      console.error('transactions error', transactionsRes.error)
-      setErrorDetails(`transactions: ${transactionsRes.error.message}`)
-      alert('Erreur chargement prévisionnel')
-      setLoading(false)
-      return
-    }
-
-    const categoriesRes = await supabase
-      .from('categories')
-      .select('id,name')
-
-    if (categoriesRes.error) {
-      console.error('categories error', categoriesRes.error)
-      setErrorDetails(`categories: ${categoriesRes.error.message}`)
-      alert('Erreur chargement prévisionnel')
-      setLoading(false)
-      return
-    }
-
-    const subcategoriesRes = await supabase
-      .from('subcategories')
-      .select('id,name,category_id')
-
-    if (subcategoriesRes.error) {
-      console.error('subcategories error', subcategoriesRes.error)
-      setErrorDetails(`subcategories: ${subcategoriesRes.error.message}`)
+    if (firstError) {
+      console.error({
+        budgets: budgetsRes.error,
+        forecasts: forecastsRes.error,
+        allocations: allocationsRes.error,
+        transactions: transactionsRes.error,
+        categories: categoriesRes.error,
+        subcategories: subcategoriesRes.error,
+      })
+      setErrorDetails(firstError.message)
       alert('Erreur chargement prévisionnel')
       setLoading(false)
       return
@@ -328,83 +164,204 @@ export default function PrevisionnelPage() {
 
   const transactionKindMap = useMemo(() => {
     const map = new Map<string, 'income' | 'expense'>()
-
     for (const tx of transactionRows) {
       if (tx.kind === 'income' || tx.kind === 'expense') {
         map.set(tx.id, tx.kind)
       }
     }
-
     return map
   }, [transactionRows])
 
   const categoryMap = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const c of categories) {
-      map.set(c.id, c.name)
-    }
+    const map = new Map<string, CategoryRow>()
+    for (const c of categories) map.set(c.id, c)
     return map
   }, [categories])
 
   const subcategoryMap = useMemo(() => {
-    const map = new Map<string, { name: string; category_id: string | null }>()
-    for (const s of subcategories) {
-      map.set(s.id, { name: s.name, category_id: s.category_id })
-    }
+    const map = new Map<string, SubcategoryRow>()
+    for (const s of subcategories) map.set(s.id, s)
     return map
   }, [subcategories])
 
+  function buildDetails(budgetId: string, kind: 'income' | 'expense'): DetailCategory[] {
+    const grouped = new Map<
+      string,
+      {
+        id: string
+        name: string
+        forecast_cents: number
+        actual_cents: number
+        subcategories: Map<
+          string,
+          {
+            id: string
+            name: string
+            forecast_cents: number
+            actual_cents: number
+          }
+        >
+      }
+    >()
+
+    const budgetCategories = categories.filter((c) => c.budget_id === budgetId)
+    const budgetCategoryIds = new Set(budgetCategories.map((c) => c.id))
+    const budgetSubcategories = subcategories.filter(
+      (s) => s.category_id && budgetCategoryIds.has(s.category_id)
+    )
+
+    for (const category of budgetCategories) {
+      grouped.set(category.id, {
+        id: category.id,
+        name: category.name,
+        forecast_cents: 0,
+        actual_cents: 0,
+        subcategories: new Map(),
+      })
+    }
+
+    for (const sub of budgetSubcategories) {
+      if (!sub.category_id) continue
+      const category = grouped.get(sub.category_id)
+      if (!category) continue
+
+      category.subcategories.set(sub.id, {
+        id: sub.id,
+        name: sub.name,
+        forecast_cents: 0,
+        actual_cents: 0,
+      })
+    }
+
+    for (const row of forecastRows) {
+      if (row.budget_id !== budgetId) continue
+      if (row.kind !== kind) continue
+      if (!row.category_id) continue
+
+      if (!grouped.has(row.category_id)) {
+        const cat = categoryMap.get(row.category_id)
+        grouped.set(row.category_id, {
+          id: row.category_id,
+          name: cat?.name ?? 'Sans catégorie',
+          forecast_cents: 0,
+          actual_cents: 0,
+          subcategories: new Map(),
+        })
+      }
+
+      const category = grouped.get(row.category_id)!
+      const amount = row.amount_cents ?? 0
+      category.forecast_cents += amount
+
+      if (row.subcategory_id) {
+        if (!category.subcategories.has(row.subcategory_id)) {
+          const sub = subcategoryMap.get(row.subcategory_id)
+          category.subcategories.set(row.subcategory_id, {
+            id: row.subcategory_id,
+            name: sub?.name ?? 'Sans sous-catégorie',
+            forecast_cents: 0,
+            actual_cents: 0,
+          })
+        }
+
+        const sub = category.subcategories.get(row.subcategory_id)!
+        sub.forecast_cents += amount
+      }
+    }
+
+    for (const row of allocationRows) {
+      if (row.budget_id !== budgetId) continue
+      if (!row.transaction_id) continue
+      if (transactionKindMap.get(row.transaction_id) !== kind) continue
+      if (!row.category_id) continue
+
+      if (!grouped.has(row.category_id)) {
+        const cat = categoryMap.get(row.category_id)
+        grouped.set(row.category_id, {
+          id: row.category_id,
+          name: cat?.name ?? 'Sans catégorie',
+          forecast_cents: 0,
+          actual_cents: 0,
+          subcategories: new Map(),
+        })
+      }
+
+      const category = grouped.get(row.category_id)!
+      const amount = row.amount_cents ?? 0
+      category.actual_cents += amount
+
+      if (row.subcategory_id) {
+        if (!category.subcategories.has(row.subcategory_id)) {
+          const sub = subcategoryMap.get(row.subcategory_id)
+          category.subcategories.set(row.subcategory_id, {
+            id: row.subcategory_id,
+            name: sub?.name ?? 'Sans sous-catégorie',
+            forecast_cents: 0,
+            actual_cents: 0,
+          })
+        }
+
+        const sub = category.subcategories.get(row.subcategory_id)!
+        sub.actual_cents += amount
+      }
+    }
+
+    return Array.from(grouped.values())
+      .map((category) => ({
+        id: category.id,
+        name: category.name,
+        forecast_cents: category.forecast_cents,
+        actual_cents: category.actual_cents,
+        diff_cents: category.actual_cents - category.forecast_cents,
+        subcategories: Array.from(category.subcategories.values())
+          .map((sub) => ({
+            id: sub.id,
+            name: sub.name,
+            forecast_cents: sub.forecast_cents,
+            actual_cents: sub.actual_cents,
+            diff_cents: sub.actual_cents - sub.forecast_cents,
+          }))
+          .filter(
+            (sub) => sub.forecast_cents !== 0 || sub.actual_cents !== 0
+          )
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      }))
+      .filter(
+        (category) =>
+          category.forecast_cents !== 0 ||
+          category.actual_cents !== 0 ||
+          category.subcategories.length > 0
+      )
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }
+
   const byBudget = useMemo(() => {
     return budgets.map((budget) => {
-      const budgetForecasts = forecastRows.filter(
-        (row) => readBudgetId(row) === budget.id
-      )
-
-      const budgetActuals = allocationRows.filter(
-        (row) => row.budget_id === budget.id
-      )
-
-      const incomeForecast = budgetForecasts
-        .filter((row) => readKind(row) === 'income')
-        .reduce((sum, row) => sum + readAmountCents(row), 0)
-
-      const expenseForecast = budgetForecasts
-        .filter((row) => readKind(row) === 'expense')
-        .reduce((sum, row) => sum + readAmountCents(row), 0)
-
-      const incomeActual = budgetActuals
-        .filter((row) => {
-          if (!row.transaction_id) return false
-          return transactionKindMap.get(row.transaction_id) === 'income'
-        })
+      const incomeForecast = forecastRows
+        .filter((row) => row.budget_id === budget.id && row.kind === 'income')
         .reduce((sum, row) => sum + (row.amount_cents ?? 0), 0)
 
-      const expenseActual = budgetActuals
-        .filter((row) => {
-          if (!row.transaction_id) return false
-          return transactionKindMap.get(row.transaction_id) === 'expense'
-        })
+      const expenseForecast = forecastRows
+        .filter((row) => row.budget_id === budget.id && row.kind === 'expense')
         .reduce((sum, row) => sum + (row.amount_cents ?? 0), 0)
 
-      const incomeDetails = buildDetailedComparison(
-        budget.id,
-        'income',
-        forecastRows,
-        allocationRows,
-        transactionKindMap,
-        categoryMap,
-        subcategoryMap
-      )
+      const incomeActual = allocationRows
+        .filter(
+          (row) =>
+            row.budget_id === budget.id &&
+            row.transaction_id &&
+            transactionKindMap.get(row.transaction_id) === 'income'
+        )
+        .reduce((sum, row) => sum + (row.amount_cents ?? 0), 0)
 
-      const expenseDetails = buildDetailedComparison(
-        budget.id,
-        'expense',
-        forecastRows,
-        allocationRows,
-        transactionKindMap,
-        categoryMap,
-        subcategoryMap
-      )
+      const expenseActual = allocationRows
+        .filter(
+          (row) =>
+            row.budget_id === budget.id &&
+            row.transaction_id &&
+            transactionKindMap.get(row.transaction_id) === 'expense'
+        )
+        .reduce((sum, row) => sum + (row.amount_cents ?? 0), 0)
 
       return {
         budget,
@@ -414,18 +371,18 @@ export default function PrevisionnelPage() {
         expenseForecast,
         expenseActual,
         expenseDiff: expenseActual - expenseForecast,
-        incomeDetails,
-        expenseDetails,
+        incomeDetails: buildDetails(budget.id, 'income'),
+        expenseDetails: buildDetails(budget.id, 'expense'),
       }
     })
-  }, [budgets, forecastRows, allocationRows, transactionKindMap, categoryMap, subcategoryMap])
+  }, [budgets, forecastRows, allocationRows, transactionKindMap, categories, subcategories])
 
   if (loading) {
     return <main style={{ padding: 24, fontFamily: 'system-ui' }}>Chargement…</main>
   }
 
   return (
-    <main style={{ padding: 24, fontFamily: 'system-ui', maxWidth: 1250 }}>
+    <main style={{ padding: 24, fontFamily: 'system-ui', maxWidth: 1400 }}>
       <h1 style={{ fontSize: 26, fontWeight: 900 }}>Prévisionnel vs réalisé</h1>
 
       {errorDetails && (
@@ -444,11 +401,7 @@ export default function PrevisionnelPage() {
         </div>
       )}
 
-      <div style={{ marginTop: 10, opacity: 0.75 }}>
-        Le comparatif est affiché par budget. Si aucun prévisionnel n’a encore été saisi, le prévisionnel reste à 0.
-      </div>
-
-      <div style={{ marginTop: 18, display: 'grid', gap: 16 }}>
+      <div style={{ marginTop: 18, display: 'grid', gap: 18 }}>
         {byBudget.map((row) => {
           const isOpen = openBudgetId === row.budget.id
 
@@ -462,201 +415,183 @@ export default function PrevisionnelPage() {
                 background: 'white',
               }}
             >
-              <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 14 }}>
-                {row.budget.name}
-              </div>
-
-              <button
-                onClick={() =>
-                  setOpenBudgetId((prev) => (prev === row.budget.id ? null : row.budget.id))
-                }
+              <div
                 style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 12,
                   marginBottom: 14,
-                  padding: '8px 12px',
-                  borderRadius: 8,
-                  border: '1px solid #ccc',
-                  cursor: 'pointer',
-                  background: isOpen ? '#f3f3f3' : '#f7f7f7',
+                  flexWrap: 'wrap',
                 }}
               >
-                {isOpen ? 'Masquer le détail' : 'Voir le détail'}
-              </button>
+                <div style={{ fontSize: 20, fontWeight: 800 }}>{row.budget.name}</div>
+
+                <button
+                  onClick={() =>
+                    setOpenBudgetId((prev) => (prev === row.budget.id ? null : row.budget.id))
+                  }
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    border: '1px solid #ccc',
+                    cursor: 'pointer',
+                    background: isOpen ? '#f3f3f3' : '#f7f7f7',
+                  }}
+                >
+                  {isOpen ? 'Masquer le détail' : 'Voir le détail'}
+                </button>
+              </div>
 
               <div
                 style={{
                   display: 'grid',
                   gridTemplateColumns: '1fr 1fr',
-                  gap: 18,
+                  gap: 20,
                 }}
               >
-                <div
+                <section
                   style={{
-                    background: '#eef9ee',
-                    border: '1px solid #d8ecd8',
+                    background: '#f5fff5',
+                    border: '1px solid #d7ead7',
                     borderRadius: 12,
-                    padding: 16,
+                    padding: 14,
                   }}
                 >
-                  <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 12 }}>
+                  <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 10 }}>
                     Recettes
                   </div>
 
-                  <div style={summaryLineStyle}>
-                    <span>Prévisionnel</span>
-                    <b>{centsToEuros(row.incomeForecast)} €</b>
-                  </div>
-
-                  <div style={summaryLineStyle}>
-                    <span>Réalisé</span>
-                    <b>{centsToEuros(row.incomeActual)} €</b>
-                  </div>
-
-                  <div style={summaryLineStyle}>
-                    <span>Écart</span>
-                    <b style={{ color: diffColor('income', row.incomeDiff) }}>
-                      {row.incomeDiff >= 0 ? '+' : ''}
-                      {centsToEuros(row.incomeDiff)} €
-                    </b>
-                  </div>
+                  <table style={tableStyle}>
+                    <thead>
+                      <tr>
+                        <th style={thLeft}>Libellé</th>
+                        <th style={thRight}>Prévisionnel</th>
+                        <th style={thRight}>Réalisé</th>
+                        <th style={thRight}>Écart</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td style={tdLabelStrong}>Total recettes</td>
+                        <td style={tdRightStrong}>{centsToEuros(row.incomeForecast)} €</td>
+                        <td style={tdRightStrong}>{centsToEuros(row.incomeActual)} €</td>
+                        <td
+                          style={{
+                            ...tdRightStrong,
+                            color: diffColor('income', row.incomeDiff),
+                          }}
+                        >
+                          {signedEuros(row.incomeDiff)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
 
                   {isOpen && (
-                    <div style={{ marginTop: 18, display: 'grid', gap: 14 }}>
-                      {row.incomeDetails.length > 0 ? (
-                        row.incomeDetails.map((cat) => (
-                          <div key={`income-${row.budget.id}-${cat.name}`}>
-                            <div style={categoryHeaderStyle}>
-                              <div>{cat.name}</div>
-                              <div style={{ display: 'flex', gap: 18 }}>
-                                <span>{centsToEuros(cat.forecast_cents)} €</span>
-                                <span>{centsToEuros(cat.actual_cents)} €</span>
-                                <span style={{ color: diffColor('income', cat.diff_cents) }}>
-                                  {cat.diff_cents >= 0 ? '+' : ''}
-                                  {centsToEuros(cat.diff_cents)} €
-                                </span>
-                              </div>
-                            </div>
-
-                            <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
-                              {cat.subcategories.map((sub) => (
-                                <div
-                                  key={`income-${row.budget.id}-${cat.name}-${sub.name}`}
-                                  style={subLineStyle}
-                                >
-                                  <div>{sub.name}</div>
-                                  <div style={{ display: 'flex', gap: 18 }}>
-                                    <span>{centsToEuros(sub.forecast_cents)} €</span>
-                                    <span>{centsToEuros(sub.actual_cents)} €</span>
-                                    <span style={{ color: diffColor('income', sub.diff_cents) }}>
-                                      {sub.diff_cents >= 0 ? '+' : ''}
-                                      {centsToEuros(sub.diff_cents)} €
-                                    </span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))
-                      ) : (
-                        <div style={{ opacity: 0.7 }}>Aucune recette.</div>
-                      )}
+                    <div style={{ marginTop: 14 }}>
+                      <table style={tableStyle}>
+                        <thead>
+                          <tr>
+                            <th style={thLeft}>Libellé</th>
+                            <th style={thRight}>Prévisionnel</th>
+                            <th style={thRight}>Réalisé</th>
+                            <th style={thRight}>Écart</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {row.incomeDetails.length === 0 ? (
+                            <tr>
+                              <td style={tdMuted} colSpan={4}>
+                                Aucune recette.
+                              </td>
+                            </tr>
+                          ) : (
+                            row.incomeDetails.map((category) => (
+                              <FragmentCategory
+                                key={`income-${row.budget.id}-${category.id}`}
+                                category={category}
+                                kind="income"
+                              />
+                            ))
+                          )}
+                        </tbody>
+                      </table>
                     </div>
                   )}
-                </div>
+                </section>
 
-                <div
+                <section
                   style={{
-                    background: '#fdf0f0',
-                    border: '1px solid #efdada',
+                    background: '#fff6f6',
+                    border: '1px solid #ead7d7',
                     borderRadius: 12,
-                    padding: 16,
+                    padding: 14,
                   }}
                 >
-                  <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 12 }}>
+                  <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 10 }}>
                     Dépenses
                   </div>
 
-                  <div style={summaryLineStyle}>
-                    <span>Prévisionnel</span>
-                    <b>{centsToEuros(row.expenseForecast)} €</b>
-                  </div>
-
-                  <div style={summaryLineStyle}>
-                    <span>Réalisé</span>
-                    <b>{centsToEuros(row.expenseActual)} €</b>
-                  </div>
-
-                  <div style={summaryLineStyle}>
-                    <span>Écart</span>
-                    <b style={{ color: diffColor('expense', row.expenseDiff) }}>
-                      {row.expenseDiff >= 0 ? '+' : ''}
-                      {centsToEuros(row.expenseDiff)} €
-                    </b>
-                  </div>
+                  <table style={tableStyle}>
+                    <thead>
+                      <tr>
+                        <th style={thLeft}>Libellé</th>
+                        <th style={thRight}>Prévisionnel</th>
+                        <th style={thRight}>Réalisé</th>
+                        <th style={thRight}>Écart</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td style={tdLabelStrong}>Total dépenses</td>
+                        <td style={tdRightStrong}>{centsToEuros(row.expenseForecast)} €</td>
+                        <td style={tdRightStrong}>{centsToEuros(row.expenseActual)} €</td>
+                        <td
+                          style={{
+                            ...tdRightStrong,
+                            color: diffColor('expense', row.expenseDiff),
+                          }}
+                        >
+                          {signedEuros(row.expenseDiff)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
 
                   {isOpen && (
-                    <div style={{ marginTop: 18, display: 'grid', gap: 14 }}>
-                      {row.expenseDetails.length > 0 ? (
-                        row.expenseDetails.map((cat) => (
-                          <div key={`expense-${row.budget.id}-${cat.name}`}>
-                            <div style={categoryHeaderStyle}>
-                              <div>{cat.name}</div>
-                              <div style={{ display: 'flex', gap: 18 }}>
-                                <span>{centsToEuros(cat.forecast_cents)} €</span>
-                                <span>{centsToEuros(cat.actual_cents)} €</span>
-                                <span style={{ color: diffColor('expense', cat.diff_cents) }}>
-                                  {cat.diff_cents >= 0 ? '+' : ''}
-                                  {centsToEuros(cat.diff_cents)} €
-                                </span>
-                              </div>
-                            </div>
-
-                            <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
-                              {cat.subcategories.map((sub) => (
-                                <div
-                                  key={`expense-${row.budget.id}-${cat.name}-${sub.name}`}
-                                  style={subLineStyle}
-                                >
-                                  <div>{sub.name}</div>
-                                  <div style={{ display: 'flex', gap: 18 }}>
-                                    <span>{centsToEuros(sub.forecast_cents)} €</span>
-                                    <span>{centsToEuros(sub.actual_cents)} €</span>
-                                    <span style={{ color: diffColor('expense', sub.diff_cents) }}>
-                                      {sub.diff_cents >= 0 ? '+' : ''}
-                                      {centsToEuros(sub.diff_cents)} €
-                                    </span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))
-                      ) : (
-                        <div style={{ opacity: 0.7 }}>Aucune dépense.</div>
-                      )}
+                    <div style={{ marginTop: 14 }}>
+                      <table style={tableStyle}>
+                        <thead>
+                          <tr>
+                            <th style={thLeft}>Libellé</th>
+                            <th style={thRight}>Prévisionnel</th>
+                            <th style={thRight}>Réalisé</th>
+                            <th style={thRight}>Écart</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {row.expenseDetails.length === 0 ? (
+                            <tr>
+                              <td style={tdMuted} colSpan={4}>
+                                Aucune dépense.
+                              </td>
+                            </tr>
+                          ) : (
+                            row.expenseDetails.map((category) => (
+                              <FragmentCategory
+                                key={`expense-${row.budget.id}-${category.id}`}
+                                category={category}
+                                kind="expense"
+                              />
+                            ))
+                          )}
+                        </tbody>
+                      </table>
                     </div>
                   )}
-                </div>
+                </section>
               </div>
-
-              {isOpen && (
-                <div
-                  style={{
-                    marginTop: 12,
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 1fr',
-                    gap: 18,
-                    fontSize: 13,
-                    opacity: 0.7,
-                  }}
-                >
-                  <div>
-                    Colonnes détail : <b>Prévisionnel</b> / <b>Réalisé</b> / <b>Écart</b>
-                  </div>
-                  <div>
-                    Colonnes détail : <b>Prévisionnel</b> / <b>Réalisé</b> / <b>Écart</b>
-                  </div>
-                </div>
-              )}
             </div>
           )
         })}
@@ -669,28 +604,96 @@ export default function PrevisionnelPage() {
   )
 }
 
-const summaryLineStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  gap: 12,
-  padding: '8px 0',
+function FragmentCategory({
+  category,
+  kind,
+}: {
+  category: DetailCategory
+  kind: 'income' | 'expense'
+}) {
+  return (
+    <>
+      <tr>
+        <td style={tdLabelStrong}>{category.name}</td>
+        <td style={tdRightStrong}>{centsToEuros(category.forecast_cents)} €</td>
+        <td style={tdRightStrong}>{centsToEuros(category.actual_cents)} €</td>
+        <td
+          style={{
+            ...tdRightStrong,
+            color: diffColor(kind, category.diff_cents),
+          }}
+        >
+          {signedEuros(category.diff_cents)}
+        </td>
+      </tr>
+
+      {category.subcategories.map((sub) => (
+        <tr key={sub.id}>
+          <td style={tdLabelSub}>{sub.name}</td>
+          <td style={tdRight}>{centsToEuros(sub.forecast_cents)} €</td>
+          <td style={tdRight}>{centsToEuros(sub.actual_cents)} €</td>
+          <td
+            style={{
+              ...tdRight,
+              color: diffColor(kind, sub.diff_cents),
+            }}
+          >
+            {signedEuros(sub.diff_cents)}
+          </td>
+        </tr>
+      ))}
+    </>
+  )
 }
 
-const categoryHeaderStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  gap: 12,
+const tableStyle: React.CSSProperties = {
+  width: '100%',
+  borderCollapse: 'collapse',
+  tableLayout: 'fixed',
+}
+
+const thLeft: React.CSSProperties = {
+  textAlign: 'left',
+  fontSize: 13,
+  padding: '8px 10px',
+  borderBottom: '1px solid #ddd',
+}
+
+const thRight: React.CSSProperties = {
+  textAlign: 'right',
+  fontSize: 13,
+  padding: '8px 10px',
+  borderBottom: '1px solid #ddd',
+  width: '18%',
+}
+
+const tdLabelStrong: React.CSSProperties = {
+  padding: '8px 10px',
+  borderBottom: '1px solid #eee',
   fontWeight: 800,
-  alignItems: 'center',
-  flexWrap: 'wrap',
 }
 
-const subLineStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  gap: 12,
-  paddingLeft: 14,
-  opacity: 0.92,
-  alignItems: 'center',
-  flexWrap: 'wrap',
+const tdLabelSub: React.CSSProperties = {
+  padding: '8px 10px 8px 24px',
+  borderBottom: '1px solid #f2f2f2',
+}
+
+const tdRightStrong: React.CSSProperties = {
+  padding: '8px 10px',
+  borderBottom: '1px solid #eee',
+  textAlign: 'right',
+  fontWeight: 800,
+  whiteSpace: 'nowrap',
+}
+
+const tdRight: React.CSSProperties = {
+  padding: '8px 10px',
+  borderBottom: '1px solid #f2f2f2',
+  textAlign: 'right',
+  whiteSpace: 'nowrap',
+}
+
+const tdMuted: React.CSSProperties = {
+  padding: '10px',
+  opacity: 0.7,
 }
