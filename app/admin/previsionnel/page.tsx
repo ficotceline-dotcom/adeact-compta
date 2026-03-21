@@ -51,7 +51,7 @@ type SubcategoryMappingRow = {
   poste_cr: string | null
 }
 
-type BudgetCategoryBlock = {
+type CategoryBlock = {
   id: string
   name: string
   subcategories: Subcategory[]
@@ -299,12 +299,20 @@ export default function AdminPrevisionnelPage() {
     return map
   }, [subcategoryMappings])
 
+  const categoryById = useMemo(() => {
+    const map = new Map<string, Category>()
+    for (const category of categories) {
+      map.set(category.id, category)
+    }
+    return map
+  }, [categories])
+
   const visibleCategories = useMemo(() => {
     return categories.filter((category) => category.budget_id === selectedBudgetId)
   }, [categories, selectedBudgetId])
 
   const visibleCategoryIds = useMemo(() => {
-    return new Set(visibleCategories.map((c) => c.id))
+    return new Set(visibleCategories.map((category) => category.id))
   }, [visibleCategories])
 
   const visibleSubcategories = useMemo(() => {
@@ -348,12 +356,6 @@ export default function AdminPrevisionnelPage() {
     return map
   }, [allocationRows, transactionKindMap, selectedBudgetId])
 
-  const categoryById = useMemo(() => {
-    const map = new Map<string, Category>()
-    for (const c of categories) map.set(c.id, c)
-    return map
-  }, [categories])
-
   function resolveSubcategoryKind(sub: Subcategory): 'income' | 'expense' {
     const byForecast = forecastKindBySubcategory.get(sub.id)
     if (byForecast) return byForecast
@@ -361,49 +363,69 @@ export default function AdminPrevisionnelPage() {
     const byActual = actualKindBySubcategory.get(sub.id)
     if (byActual) return byActual
 
-    const subPoste = subcategoryPosteMap.get(sub.id)
-    const bySubPoste = inferKindFromPosteCR(subPoste)
+    const bySubPoste = inferKindFromPosteCR(subcategoryPosteMap.get(sub.id))
     if (bySubPoste) return bySubPoste
 
     const category = sub.category_id ? categoryById.get(sub.category_id) : null
-    const catPoste = category?.id ? categoryPosteMap.get(category.id) : null
-    const byCatPoste = inferKindFromPosteCR(catPoste)
+    const byCatPoste = inferKindFromPosteCR(
+      category?.id ? categoryPosteMap.get(category.id) : null
+    )
     if (byCatPoste) return byCatPoste
 
     return 'expense'
   }
 
-  const expenseBlocks = useMemo<BudgetCategoryBlock[]>(() => {
+  const expenseBlocks = useMemo<CategoryBlock[]>(() => {
     return visibleCategories
       .map((category) => ({
         id: category.id,
         name: category.name,
         subcategories: visibleSubcategories.filter(
-          (s) => s.category_id === category.id && resolveSubcategoryKind(s) === 'expense'
+          (sub) =>
+            sub.category_id === category.id &&
+            resolveSubcategoryKind(sub) === 'expense'
         ),
       }))
-      .filter((c) => c.subcategories.length > 0)
-  }, [visibleCategories, visibleSubcategories, forecastKindBySubcategory, actualKindBySubcategory, subcategoryPosteMap, categoryPosteMap])
+      .filter((category) => category.subcategories.length > 0)
+  }, [
+    visibleCategories,
+    visibleSubcategories,
+    forecastKindBySubcategory,
+    actualKindBySubcategory,
+    subcategoryPosteMap,
+    categoryPosteMap,
+    categoryById,
+  ])
 
-  const incomeBlocks = useMemo<BudgetCategoryBlock[]>(() => {
+  const incomeBlocks = useMemo<CategoryBlock[]>(() => {
     return visibleCategories
       .map((category) => ({
         id: category.id,
         name: category.name,
         subcategories: visibleSubcategories.filter(
-          (s) => s.category_id === category.id && resolveSubcategoryKind(s) === 'income'
+          (sub) =>
+            sub.category_id === category.id &&
+            resolveSubcategoryKind(sub) === 'income'
         ),
       }))
-      .filter((c) => c.subcategories.length > 0)
-  }, [visibleCategories, visibleSubcategories, forecastKindBySubcategory, actualKindBySubcategory, subcategoryPosteMap, categoryPosteMap])
+      .filter((category) => category.subcategories.length > 0)
+  }, [
+    visibleCategories,
+    visibleSubcategories,
+    forecastKindBySubcategory,
+    actualKindBySubcategory,
+    subcategoryPosteMap,
+    categoryPosteMap,
+    categoryById,
+  ])
 
   const expenseSubcategories = useMemo(
-    () => expenseBlocks.flatMap((b) => b.subcategories),
+    () => expenseBlocks.flatMap((category) => category.subcategories),
     [expenseBlocks]
   )
 
   const incomeSubcategories = useMemo(
-    () => incomeBlocks.flatMap((b) => b.subcategories),
+    () => incomeBlocks.flatMap((category) => category.subcategories),
     [incomeBlocks]
   )
 
