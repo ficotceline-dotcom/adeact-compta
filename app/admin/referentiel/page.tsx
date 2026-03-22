@@ -6,1133 +6,650 @@ import { supabase } from '@/lib/supabase'
 type Budget = {
   id: string
   name: string
-  is_archived: boolean | null
-  is_closed?: boolean | null
   ordre: number
+  is_archived?: boolean
 }
 
 type Category = {
   id: string
-  budget_id: string
-  kind: 'income' | 'expense'
   name: string
-  ordre: number
+  budget_id: string | null
 }
 
 type Subcategory = {
   id: string
-  category_id: string
   name: string
-  ordre: number
+  category_id: string | null
 }
 
-type CategoryMapping = {
-  id?: string
-  category_id: string
-  poste_cr: string | null
-  poste_bilan: string | null
-}
-
-type SubcategoryMapping = {
-  id?: string
-  subcategory_id: string
-  poste_cr: string | null
-  poste_bilan: string | null
-}
-
-type TxRef = {
-  transaction_id: string
-  tx_date: string
-  description: string
-  amount_cents: number
-}
-
-function centsToEuros(cents: number) {
-  return (cents / 100).toFixed(2)
-}
-
-function hasFullMapping(poste_cr?: string | null, poste_bilan?: string | null) {
-  return !!poste_cr && !!poste_bilan
+type CategoryBlock = {
+  category: Category
+  subcategories: Subcategory[]
 }
 
 export default function AdminReferentielPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+  const [errorDetails, setErrorDetails] = useState('')
 
   const [budgets, setBudgets] = useState<Budget[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [subcategories, setSubcategories] = useState<Subcategory[]>([])
 
-  const [categoryMappings, setCategoryMappings] = useState<Record<string, CategoryMapping>>({})
-  const [subcategoryMappings, setSubcategoryMappings] = useState<Record<string, SubcategoryMapping>>({})
+  const [selectedBudgetId, setSelectedBudgetId] = useState('')
 
-  const [crPostes, setCrPostes] = useState<string[]>([])
-  const [bilanPostes, setBilanPostes] = useState<string[]>([])
-
-  const [newBudgetName, setNewBudgetName] = useState('')
-  const [newCategoryBudgetId, setNewCategoryBudgetId] = useState('')
-  const [newCategoryKind, setNewCategoryKind] = useState<'income' | 'expense'>('expense')
   const [newCategoryName, setNewCategoryName] = useState('')
-  const [newSubcategoryCategoryId, setNewSubcategoryCategoryId] = useState('')
-  const [newSubcategoryName, setNewSubcategoryName] = useState('')
+  const [newSubcategoryNames, setNewSubcategoryNames] = useState<Record<string, string>>({})
 
-  const [duplicateSourceBudgetId, setDuplicateSourceBudgetId] = useState('')
-  const [duplicateTargetName, setDuplicateTargetName] = useState('')
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null)
+  const [editingCategoryValue, setEditingCategoryValue] = useState('')
 
-  // filtres d'affichage
-  const [categoryFilterBudgetId, setCategoryFilterBudgetId] = useState('')
-  const [categoryFilterKind, setCategoryFilterKind] = useState<'income' | 'expense'>('expense')
-
-  const [subcategoryFilterBudgetId, setSubcategoryFilterBudgetId] = useState('')
-  const [subcategoryFilterKind, setSubcategoryFilterKind] = useState<'income' | 'expense'>('expense')
-
-  const [mappingCategoryFilterBudgetId, setMappingCategoryFilterBudgetId] = useState('')
-  const [mappingCategoryFilterKind, setMappingCategoryFilterKind] = useState<'income' | 'expense'>('expense')
-  const [showMappedCategories, setShowMappedCategories] = useState(false)
-
-  const [mappingSubcategoryFilterBudgetId, setMappingSubcategoryFilterBudgetId] = useState('')
-  const [mappingSubcategoryFilterKind, setMappingSubcategoryFilterKind] = useState<'income' | 'expense'>('expense')
-  const [showMappedSubcategories, setShowMappedSubcategories] = useState(false)
-
-  const budgetsSorted = useMemo(
-    () => [...budgets].sort((a, b) => a.ordre - b.ordre || a.name.localeCompare(b.name)),
-    [budgets]
-  )
-
-  const categoriesSorted = useMemo(
-    () => [...categories].sort((a, b) => a.ordre - b.ordre || a.name.localeCompare(b.name)),
-    [categories]
-  )
-
-  const subcategoriesSorted = useMemo(
-    () => [...subcategories].sort((a, b) => a.ordre - b.ordre || a.name.localeCompare(b.name)),
-    [subcategories]
-  )
+  const [editingSubcategoryId, setEditingSubcategoryId] = useState<string | null>(null)
+  const [editingSubcategoryValue, setEditingSubcategoryValue] = useState('')
 
   useEffect(() => {
     load()
   }, [])
 
-  useEffect(() => {
-    if (!categoryFilterBudgetId && budgetsSorted.length) {
-      const firstActive = budgetsSorted.find((b) => !b.is_archived) ?? budgetsSorted[0]
-      setCategoryFilterBudgetId(firstActive.id)
-      setSubcategoryFilterBudgetId(firstActive.id)
-      setMappingCategoryFilterBudgetId(firstActive.id)
-      setMappingSubcategoryFilterBudgetId(firstActive.id)
-      setNewCategoryBudgetId(firstActive.id)
-    }
-  }, [budgetsSorted, categoryFilterBudgetId])
-
   async function load() {
     setLoading(true)
+    setMessage('')
+    setErrorDetails('')
 
-    const [
-      { data: b, error: e1 },
-      { data: c, error: e2 },
-      { data: s, error: e3 },
-      { data: cm, error: e4 },
-      { data: sm, error: e5 },
-      { data: crp, error: e6 },
-      { data: bip, error: e7 },
-    ] = await Promise.all([
-      supabase.from('budgets').select('id,name,is_archived,is_closed,ordre').order('ordre'),
-      supabase.from('categories').select('id,budget_id,kind,name,ordre').order('ordre'),
-      supabase.from('subcategories').select('id,category_id,name,ordre').order('ordre'),
-      supabase.from('category_mapping').select('*'),
-      supabase.from('subcategory_mapping').select('*'),
-      supabase.from('cr_postes').select('label').order('label'),
-      supabase.from('bilan_postes').select('label').order('label'),
+    const [budgetsRes, categoriesRes, subcategoriesRes] = await Promise.all([
+      supabase
+        .from('budgets')
+        .select('id,name,ordre,is_archived')
+        .order('ordre'),
+
+      supabase
+        .from('categories')
+        .select('id,name,budget_id')
+        .order('name'),
+
+      supabase
+        .from('subcategories')
+        .select('id,name,category_id')
+        .order('name'),
     ])
 
-    if (e1 || e2 || e3 || e4 || e5 || e6 || e7) {
-      console.error(e1 || e2 || e3 || e4 || e5 || e6 || e7)
-      alert('Erreur chargement référentiel')
+    const firstError = budgetsRes.error || categoriesRes.error || subcategoriesRes.error
+
+    if (firstError) {
+      console.error({
+        budgets: budgetsRes.error,
+        categories: categoriesRes.error,
+        subcategories: subcategoriesRes.error,
+      })
+      setErrorDetails(firstError.message)
+      alert('Erreur chargement admin référentiel')
       setLoading(false)
       return
     }
 
-    setBudgets((b ?? []) as Budget[])
-    setCategories((c ?? []) as Category[])
-    setSubcategories((s ?? []) as Subcategory[])
+    const loadedBudgets = ((budgetsRes.data ?? []) as Budget[]).filter((b) => !b.is_archived)
 
-    const cmMap: Record<string, CategoryMapping> = {}
-    for (const row of (cm ?? []) as CategoryMapping[]) {
-      cmMap[row.category_id] = row
+    setBudgets(loadedBudgets)
+    setCategories((categoriesRes.data ?? []) as Category[])
+    setSubcategories((subcategoriesRes.data ?? []) as Subcategory[])
+
+    if (loadedBudgets.length > 0) {
+      setSelectedBudgetId((prev) => prev || loadedBudgets[0].id)
     }
-    setCategoryMappings(cmMap)
-
-    const smMap: Record<string, SubcategoryMapping> = {}
-    for (const row of (sm ?? []) as SubcategoryMapping[]) {
-      smMap[row.subcategory_id] = row
-    }
-    setSubcategoryMappings(smMap)
-
-    setCrPostes((crp ?? []).map((x: any) => x.label))
-    setBilanPostes((bip ?? []).map((x: any) => x.label))
 
     setLoading(false)
   }
 
-  async function recalcCategoryMapping(categoryId: string, poste_cr: string | null, poste_bilan: string | null) {
-    const { error } = await supabase
-      .from('transaction_allocations')
-      .update({
-        poste_cr,
-        poste_bilan,
-      })
-      .eq('category_id', categoryId)
-      .is('subcategory_id', null)
+  const visibleCategories = useMemo(() => {
+    return categories.filter((c) => c.budget_id === selectedBudgetId)
+  }, [categories, selectedBudgetId])
 
-    if (error) throw error
-  }
-
-  async function recalcSubcategoryMapping(subcategoryId: string, poste_cr: string | null, poste_bilan: string | null) {
-    const { error } = await supabase
-      .from('transaction_allocations')
-      .update({
-        poste_cr,
-        poste_bilan,
-      })
-      .eq('subcategory_id', subcategoryId)
-
-    if (error) throw error
-  }
-
-  async function createBudget() {
-    if (!newBudgetName.trim()) return
-    setSaving(true)
-
-    const nextOrdre = budgets.length ? Math.max(...budgets.map((b) => b.ordre ?? 999)) + 1 : 1
-
-    const { error } = await supabase.from('budgets').insert({
-      name: newBudgetName.trim(),
-      is_archived: false,
-      is_closed: false,
-      ordre: nextOrdre,
-    })
-
-    setSaving(false)
-
-    if (error) {
-      console.error(error)
-      alert('Erreur création budget')
-      return
-    }
-
-    setNewBudgetName('')
-    await load()
-  }
-
-  async function updateBudget(budgetId: string, patch: Partial<Budget>) {
-    const { error } = await supabase.from('budgets').update(patch).eq('id', budgetId)
-    if (error) {
-      console.error(error)
-      alert('Erreur modification budget')
-      return
-    }
-    await load()
-  }
+  const blocks = useMemo<CategoryBlock[]>(() => {
+    return visibleCategories
+      .map((category) => ({
+        category,
+        subcategories: subcategories
+          .filter((s) => s.category_id === category.id)
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      }))
+      .sort((a, b) => a.category.name.localeCompare(b.category.name))
+  }, [visibleCategories, subcategories])
 
   async function createCategory() {
-    if (!newCategoryBudgetId || !newCategoryName.trim()) return
-    setSaving(true)
-
-    const sameBudgetCats = categories.filter(
-      (c) => c.budget_id === newCategoryBudgetId && c.kind === newCategoryKind
-    )
-    const nextOrdre = sameBudgetCats.length
-      ? Math.max(...sameBudgetCats.map((c) => c.ordre ?? 999)) + 1
-      : 1
-
-    const { error } = await supabase.from('categories').insert({
-      budget_id: newCategoryBudgetId,
-      kind: newCategoryKind,
-      name: newCategoryName.trim(),
-      ordre: nextOrdre,
-    })
-
-    setSaving(false)
-
-    if (error) {
-      console.error(error)
-      alert('Erreur création catégorie')
+    const name = newCategoryName.trim()
+    if (!selectedBudgetId) {
+      alert('Choisis un budget')
       return
     }
-
-    setNewCategoryName('')
-    await load()
-  }
-
-  async function updateCategory(categoryId: string, patch: Partial<Category>) {
-    const { error } = await supabase.from('categories').update(patch).eq('id', categoryId)
-    if (error) {
-      console.error(error)
-      alert('Erreur modification catégorie')
+    if (!name) {
+      alert('Renseigne un nom de catégorie')
       return
     }
-    await load()
-  }
-
-  async function createSubcategory() {
-    if (!newSubcategoryCategoryId || !newSubcategoryName.trim()) return
-    setSaving(true)
-
-    const sameCatSubs = subcategories.filter((s) => s.category_id === newSubcategoryCategoryId)
-    const nextOrdre = sameCatSubs.length
-      ? Math.max(...sameCatSubs.map((s) => s.ordre ?? 999)) + 1
-      : 1
-
-    const { error } = await supabase.from('subcategories').insert({
-      category_id: newSubcategoryCategoryId,
-      name: newSubcategoryName.trim(),
-      ordre: nextOrdre,
-    })
-
-    setSaving(false)
-
-    if (error) {
-      console.error(error)
-      alert('Erreur création sous-catégorie')
-      return
-    }
-
-    setNewSubcategoryName('')
-    await load()
-  }
-
-  async function updateSubcategory(subcategoryId: string, patch: Partial<Subcategory>) {
-    const { error } = await supabase.from('subcategories').update(patch).eq('id', subcategoryId)
-    if (error) {
-      console.error(error)
-      alert('Erreur modification sous-catégorie')
-      return
-    }
-    await load()
-  }
-
-  async function getLinkedTransactionsForCategory(categoryId: string): Promise<TxRef[]> {
-    const { data, error } = await supabase
-      .from('transaction_allocations')
-      .select('transaction_id, transactions!inner(tx_date,description,amount_cents)')
-      .eq('category_id', categoryId)
-
-    if (error) {
-      console.error(error)
-      return []
-    }
-
-    return ((data ?? []) as any[]).map((row) => ({
-      transaction_id: row.transaction_id,
-      tx_date: row.transactions?.tx_date,
-      description: row.transactions?.description,
-      amount_cents: row.transactions?.amount_cents,
-    }))
-  }
-
-  async function getLinkedTransactionsForSubcategory(subcategoryId: string): Promise<TxRef[]> {
-    const { data, error } = await supabase
-      .from('transaction_allocations')
-      .select('transaction_id, transactions!inner(tx_date,description,amount_cents)')
-      .eq('subcategory_id', subcategoryId)
-
-    if (error) {
-      console.error(error)
-      return []
-    }
-
-    return ((data ?? []) as any[]).map((row) => ({
-      transaction_id: row.transaction_id,
-      tx_date: row.transactions?.tx_date,
-      description: row.transactions?.description,
-      amount_cents: row.transactions?.amount_cents,
-    }))
-  }
-
-  async function deleteCategory(categoryId: string) {
-    const linked = await getLinkedTransactionsForCategory(categoryId)
-
-    if (linked.length > 0) {
-      const msg =
-        `Impossible de supprimer cette catégorie : ${linked.length} transaction(s) y sont rattachée(s).\n\n` +
-        linked
-          .slice(0, 10)
-          .map(
-            (t) =>
-              `- ${t.tx_date} | ${t.description ?? 'Sans libellé'} | ${centsToEuros(t.amount_cents)} €`
-          )
-          .join('\n') +
-        `\n\nVa les modifier dans Transactions > Modifier.`
-      alert(msg)
-      return
-    }
-
-    const ok = confirm('Supprimer cette catégorie ?')
-    if (!ok) return
-
-    const { error } = await supabase.from('categories').delete().eq('id', categoryId)
-    if (error) {
-      console.error(error)
-      alert('Erreur suppression catégorie')
-      return
-    }
-
-    await load()
-  }
-
-  async function deleteSubcategory(subcategoryId: string) {
-    const linked = await getLinkedTransactionsForSubcategory(subcategoryId)
-
-    if (linked.length > 0) {
-      const msg =
-        `Impossible de supprimer cette sous-catégorie : ${linked.length} transaction(s) y sont rattachée(s).\n\n` +
-        linked
-          .slice(0, 10)
-          .map(
-            (t) =>
-              `- ${t.tx_date} | ${t.description ?? 'Sans libellé'} | ${centsToEuros(t.amount_cents)} €`
-          )
-          .join('\n') +
-        `\n\nVa les modifier dans Transactions > Modifier.`
-      alert(msg)
-      return
-    }
-
-    const ok = confirm('Supprimer cette sous-catégorie ?')
-    if (!ok) return
-
-    const { error } = await supabase.from('subcategories').delete().eq('id', subcategoryId)
-    if (error) {
-      console.error(error)
-      alert('Erreur suppression sous-catégorie')
-      return
-    }
-
-    await load()
-  }
-
-  async function saveCategoryMapping(categoryId: string) {
-    const mapping = categoryMappings[categoryId]
-    if (!mapping) return
-
-    const { error } = await supabase.from('category_mapping').upsert({
-      category_id: categoryId,
-      poste_cr: mapping.poste_cr,
-      poste_bilan: mapping.poste_bilan,
-    })
-
-    if (error) {
-      console.error(error)
-      alert('Erreur sauvegarde mapping catégorie')
-      return
-    }
-
-    await recalcCategoryMapping(categoryId, mapping.poste_cr, mapping.poste_bilan)
-    alert('✅ Mapping catégorie sauvegardé')
-    await load()
-  }
-
-  async function saveSubcategoryMapping(subcategoryId: string) {
-    const mapping = subcategoryMappings[subcategoryId]
-    if (!mapping) return
-
-    const { error } = await supabase.from('subcategory_mapping').upsert({
-      subcategory_id: subcategoryId,
-      poste_cr: mapping.poste_cr,
-      poste_bilan: mapping.poste_bilan,
-    })
-
-    if (error) {
-      console.error(error)
-      alert('Erreur sauvegarde mapping sous-catégorie')
-      return
-    }
-
-    await recalcSubcategoryMapping(subcategoryId, mapping.poste_cr, mapping.poste_bilan)
-    alert('✅ Mapping sous-catégorie sauvegardé')
-    await load()
-  }
-
-  async function duplicateBudget() {
-    if (!duplicateSourceBudgetId || !duplicateTargetName.trim()) return
-
-    const sourceBudget = budgets.find((b) => b.id === duplicateSourceBudgetId)
-    if (!sourceBudget) return
 
     setSaving(true)
+    setMessage('')
+    setErrorDetails('')
 
     try {
-      const nextBudgetOrdre = budgets.length ? Math.max(...budgets.map((b) => b.ordre ?? 999)) + 1 : 1
+      const { error } = await supabase.from('categories').insert({
+        name,
+        budget_id: selectedBudgetId,
+      })
 
-      const { data: newBudget, error: budgetErr } = await supabase
-        .from('budgets')
-        .insert({
-          name: duplicateTargetName.trim(),
-          is_archived: false,
-          is_closed: false,
-          ordre: nextBudgetOrdre,
-        })
-        .select('id')
-        .single()
+      if (error) throw error
 
-      if (budgetErr || !newBudget) throw budgetErr ?? new Error('Erreur création budget')
-
-      const sourceCategories = categories
-        .filter((c) => c.budget_id === duplicateSourceBudgetId)
-        .sort((a, b) => a.ordre - b.ordre)
-
-      const sourceSubcategories = subcategories
-      const sourceCategoryMapByOldId = new Map<string, string>()
-
-      for (const cat of sourceCategories) {
-        const { data: newCat, error: catErr } = await supabase
-          .from('categories')
-          .insert({
-            budget_id: newBudget.id,
-            kind: cat.kind,
-            name: cat.name,
-            ordre: cat.ordre,
-          })
-          .select('id')
-          .single()
-
-        if (catErr || !newCat) throw catErr ?? new Error('Erreur duplication catégorie')
-        sourceCategoryMapByOldId.set(cat.id, newCat.id)
-
-        const cm = categoryMappings[cat.id]
-        if (cm) {
-          const { error: mapErr } = await supabase.from('category_mapping').upsert({
-            category_id: newCat.id,
-            poste_cr: cm.poste_cr,
-            poste_bilan: cm.poste_bilan,
-          })
-          if (mapErr) throw mapErr
-        }
-      }
-
-      for (const sub of sourceSubcategories.filter((s) => sourceCategoryMapByOldId.has(s.category_id))) {
-        const newCategoryId = sourceCategoryMapByOldId.get(sub.category_id)!
-        const { data: newSub, error: subErr } = await supabase
-          .from('subcategories')
-          .insert({
-            category_id: newCategoryId,
-            name: sub.name,
-            ordre: sub.ordre,
-          })
-          .select('id')
-          .single()
-
-        if (subErr || !newSub) throw subErr ?? new Error('Erreur duplication sous-catégorie')
-
-        const sm = subcategoryMappings[sub.id]
-        if (sm) {
-          const { error: mapErr } = await supabase.from('subcategory_mapping').upsert({
-            subcategory_id: newSub.id,
-            poste_cr: sm.poste_cr,
-            poste_bilan: sm.poste_bilan,
-          })
-          if (mapErr) throw mapErr
-        }
-      }
-
-      alert('✅ Budget dupliqué')
-      setDuplicateSourceBudgetId('')
-      setDuplicateTargetName('')
+      setNewCategoryName('')
+      setMessage('✅ Catégorie ajoutée')
       await load()
     } catch (e: any) {
       console.error(e)
-      alert('Erreur duplication budget')
+      setErrorDetails(e?.message ?? 'Erreur inconnue')
+      alert(`Erreur ajout catégorie : ${e?.message ?? 'inconnue'}`)
     } finally {
       setSaving(false)
     }
   }
 
-  function budgetName(budgetId: string) {
-    return budgets.find((b) => b.id === budgetId)?.name ?? '—'
+  async function createSubcategory(categoryId: string) {
+    const raw = newSubcategoryNames[categoryId] ?? ''
+    const name = raw.trim()
+
+    if (!name) {
+      alert('Renseigne un nom de sous-catégorie')
+      return
+    }
+
+    setSaving(true)
+    setMessage('')
+    setErrorDetails('')
+
+    try {
+      const { error } = await supabase.from('subcategories').insert({
+        name,
+        category_id: categoryId,
+      })
+
+      if (error) throw error
+
+      setNewSubcategoryNames((prev) => ({
+        ...prev,
+        [categoryId]: '',
+      }))
+      setMessage('✅ Sous-catégorie ajoutée')
+      await load()
+    } catch (e: any) {
+      console.error(e)
+      setErrorDetails(e?.message ?? 'Erreur inconnue')
+      alert(`Erreur ajout sous-catégorie : ${e?.message ?? 'inconnue'}`)
+    } finally {
+      setSaving(false)
+    }
   }
 
-  function categoryById(categoryId: string) {
-    return categories.find((x) => x.id === categoryId)
+  function startEditCategory(category: Category) {
+    setEditingCategoryId(category.id)
+    setEditingCategoryValue(category.name)
   }
 
-  function categoryLabel(categoryId: string) {
-    const c = categoryById(categoryId)
-    if (!c) return '—'
-    return `${budgetName(c.budget_id)} • ${c.kind === 'income' ? 'Recette' : 'Dépense'} • ${c.name}`
+  async function saveCategoryEdit() {
+    if (!editingCategoryId) return
+
+    const name = editingCategoryValue.trim()
+    if (!name) {
+      alert('Le nom ne peut pas être vide')
+      return
+    }
+
+    setSaving(true)
+    setMessage('')
+    setErrorDetails('')
+
+    try {
+      const { error } = await supabase
+        .from('categories')
+        .update({ name })
+        .eq('id', editingCategoryId)
+
+      if (error) throw error
+
+      setEditingCategoryId(null)
+      setEditingCategoryValue('')
+      setMessage('✅ Catégorie modifiée')
+      await load()
+    } catch (e: any) {
+      console.error(e)
+      setErrorDetails(e?.message ?? 'Erreur inconnue')
+      alert(`Erreur modification catégorie : ${e?.message ?? 'inconnue'}`)
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const visibleCategories = useMemo(() => {
-    return categoriesSorted.filter((c) => {
-      if (!categoryFilterBudgetId) return true
-      return c.budget_id === categoryFilterBudgetId && c.kind === categoryFilterKind
-    })
-  }, [categoriesSorted, categoryFilterBudgetId, categoryFilterKind])
+  function startEditSubcategory(subcategory: Subcategory) {
+    setEditingSubcategoryId(subcategory.id)
+    setEditingSubcategoryValue(subcategory.name)
+  }
 
-  const visibleSubcategories = useMemo(() => {
-    return subcategoriesSorted.filter((s) => {
-      const cat = categoryById(s.category_id)
-      if (!cat) return false
-      if (!subcategoryFilterBudgetId) return true
-      return cat.budget_id === subcategoryFilterBudgetId && cat.kind === subcategoryFilterKind
-    })
-  }, [subcategoriesSorted, subcategoryFilterBudgetId, subcategoryFilterKind, categories])
+  async function saveSubcategoryEdit() {
+    if (!editingSubcategoryId) return
 
-  const visibleCategoryMappings = useMemo(() => {
-    const filtered = categoriesSorted.filter((c) => {
-      if (!mappingCategoryFilterBudgetId) return true
-      return c.budget_id === mappingCategoryFilterBudgetId && c.kind === mappingCategoryFilterKind
-    })
+    const name = editingSubcategoryValue.trim()
+    if (!name) {
+      alert('Le nom ne peut pas être vide')
+      return
+    }
 
-    const unmapped = filtered.filter((c) => {
-      const m = categoryMappings[c.id]
-      return !hasFullMapping(m?.poste_cr, m?.poste_bilan)
-    })
+    setSaving(true)
+    setMessage('')
+    setErrorDetails('')
 
-    const mapped = filtered.filter((c) => {
-      const m = categoryMappings[c.id]
-      return hasFullMapping(m?.poste_cr, m?.poste_bilan)
-    })
+    try {
+      const { error } = await supabase
+        .from('subcategories')
+        .update({ name })
+        .eq('id', editingSubcategoryId)
 
-    return showMappedCategories ? [...unmapped, ...mapped] : unmapped
-  }, [
-    categoriesSorted,
-    mappingCategoryFilterBudgetId,
-    mappingCategoryFilterKind,
-    categoryMappings,
-    showMappedCategories,
-  ])
+      if (error) throw error
 
-  const visibleSubcategoryMappings = useMemo(() => {
-    const filtered = subcategoriesSorted.filter((s) => {
-      const cat = categoryById(s.category_id)
-      if (!cat) return false
-      if (!mappingSubcategoryFilterBudgetId) return true
-      return cat.budget_id === mappingSubcategoryFilterBudgetId && cat.kind === mappingSubcategoryFilterKind
-    })
+      setEditingSubcategoryId(null)
+      setEditingSubcategoryValue('')
+      setMessage('✅ Sous-catégorie modifiée')
+      await load()
+    } catch (e: any) {
+      console.error(e)
+      setErrorDetails(e?.message ?? 'Erreur inconnue')
+      alert(`Erreur modification sous-catégorie : ${e?.message ?? 'inconnue'}`)
+    } finally {
+      setSaving(false)
+    }
+  }
 
-    const unmapped = filtered.filter((s) => {
-      const m = subcategoryMappings[s.id]
-      return !hasFullMapping(m?.poste_cr, m?.poste_bilan)
-    })
+  async function deleteCategory(categoryId: string) {
+    const ok = window.confirm(
+      "Supprimer cette catégorie ? La suppression est bloquée si elle a des transactions, du prévisionnel ou des sous-catégories."
+    )
+    if (!ok) return
 
-    const mapped = filtered.filter((s) => {
-      const m = subcategoryMappings[s.id]
-      return hasFullMapping(m?.poste_cr, m?.poste_bilan)
-    })
+    setSaving(true)
+    setMessage('')
+    setErrorDetails('')
 
-    return showMappedSubcategories ? [...unmapped, ...mapped] : unmapped
-  }, [
-    subcategoriesSorted,
-    mappingSubcategoryFilterBudgetId,
-    mappingSubcategoryFilterKind,
-    subcategoryMappings,
-    showMappedSubcategories,
-    categories,
-  ])
+    try {
+      const [{ count: txCount }, { count: forecastCount }, { count: subCount }] = await Promise.all([
+        supabase
+          .from('transaction_allocations')
+          .select('*', { count: 'exact', head: true })
+          .eq('category_id', categoryId),
+
+        supabase
+          .from('budget_forecasts')
+          .select('*', { count: 'exact', head: true })
+          .eq('category_id', categoryId),
+
+        supabase
+          .from('subcategories')
+          .select('*', { count: 'exact', head: true })
+          .eq('category_id', categoryId),
+      ])
+
+      if ((txCount ?? 0) > 0 || (forecastCount ?? 0) > 0 || (subCount ?? 0) > 0) {
+        alert("Impossible de supprimer cette catégorie car elle est déjà utilisée.")
+        return
+      }
+
+      const { error } = await supabase.from('categories').delete().eq('id', categoryId)
+      if (error) throw error
+
+      setMessage('✅ Catégorie supprimée')
+      await load()
+    } catch (e: any) {
+      console.error(e)
+      setErrorDetails(e?.message ?? 'Erreur inconnue')
+      alert(`Erreur suppression catégorie : ${e?.message ?? 'inconnue'}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function deleteSubcategory(subcategoryId: string) {
+    const ok = window.confirm(
+      "Supprimer cette sous-catégorie ? La suppression est bloquée si elle a des transactions ou du prévisionnel."
+    )
+    if (!ok) return
+
+    setSaving(true)
+    setMessage('')
+    setErrorDetails('')
+
+    try {
+      const [{ count: txCount }, { count: forecastCount }] = await Promise.all([
+        supabase
+          .from('transaction_allocations')
+          .select('*', { count: 'exact', head: true })
+          .eq('subcategory_id', subcategoryId),
+
+        supabase
+          .from('budget_forecasts')
+          .select('*', { count: 'exact', head: true })
+          .eq('subcategory_id', subcategoryId),
+      ])
+
+      if ((txCount ?? 0) > 0 || (forecastCount ?? 0) > 0) {
+        alert("Impossible de supprimer cette sous-catégorie car elle est déjà utilisée.")
+        return
+      }
+
+      const { error } = await supabase.from('subcategories').delete().eq('id', subcategoryId)
+      if (error) throw error
+
+      setMessage('✅ Sous-catégorie supprimée')
+      await load()
+    } catch (e: any) {
+      console.error(e)
+      setErrorDetails(e?.message ?? 'Erreur inconnue')
+      alert(`Erreur suppression sous-catégorie : ${e?.message ?? 'inconnue'}`)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   if (loading) {
     return <main style={{ padding: 24, fontFamily: 'system-ui' }}>Chargement…</main>
   }
 
   return (
-    <main style={{ padding: 24, fontFamily: 'system-ui', maxWidth: 1300 }}>
-      <h1 style={{ fontSize: 26, fontWeight: 900 }}>Admin — Référentiel</h1>
+    <main style={{ padding: 24, fontFamily: 'system-ui', maxWidth: 1200 }}>
+      <h1 style={{ fontSize: 28, fontWeight: 900 }}>Admin référentiel</h1>
 
-      <section style={{ marginTop: 24, border: '1px solid #ddd', borderRadius: 12, padding: 16 }}>
-        <h2 style={{ fontSize: 20, fontWeight: 800 }}>Budgets</h2>
-
-        <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
-          <input
-            placeholder="Nom du nouveau budget"
-            value={newBudgetName}
-            onChange={(e) => setNewBudgetName(e.target.value)}
-            style={{ padding: 8, minWidth: 260 }}
-          />
-          <button onClick={createBudget} disabled={saving}>Créer le budget</button>
+      {errorDetails && (
+        <div
+          style={{
+            marginTop: 16,
+            padding: 12,
+            borderRadius: 10,
+            background: '#fff3f3',
+            border: '1px solid #e0b4b4',
+            color: '#8a1f1f',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          <b>Détail erreur :</b> {errorDetails}
         </div>
+      )}
 
-        <div style={{ marginTop: 20, display: 'grid', gap: 10 }}>
-          {budgetsSorted.map((b) => (
-            <div key={b.id} style={{ border: '1px solid #eee', borderRadius: 10, padding: 12 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 120px 120px auto auto', gap: 10, alignItems: 'center' }}>
-                <input
-                  value={b.name}
-                  onChange={(e) => {
-                    setBudgets((prev) => prev.map((x) => (x.id === b.id ? { ...x, name: e.target.value } : x)))
-                  }}
-                  style={{ padding: 8 }}
-                />
+      <div
+        style={{
+          marginTop: 18,
+          display: 'flex',
+          gap: 12,
+          alignItems: 'center',
+          flexWrap: 'wrap',
+        }}
+      >
+        <label style={{ fontWeight: 700 }}>Budget :</label>
 
-                <input
-                  type="number"
-                  value={b.ordre}
-                  onChange={(e) => {
-                    const ordre = Number(e.target.value || 999)
-                    setBudgets((prev) => prev.map((x) => (x.id === b.id ? { ...x, ordre } : x)))
-                  }}
-                  style={{ padding: 8 }}
-                />
-
-                <button onClick={() => updateBudget(b.id, { name: b.name, ordre: b.ordre })}>
-                  Sauver
-                </button>
-
-                <button onClick={() => updateBudget(b.id, { is_archived: !(b.is_archived ?? false) })}>
-                  {b.is_archived ? 'Réouvrir' : 'Archiver'}
-                </button>
-
-                <span>{b.is_archived ? 'Archivé' : 'Actif'}</span>
-              </div>
-            </div>
+        <select
+          value={selectedBudgetId}
+          onChange={(e) => setSelectedBudgetId(e.target.value)}
+          style={{
+            padding: '10px 12px',
+            borderRadius: 8,
+            border: '1px solid #ccc',
+            minWidth: 260,
+          }}
+        >
+          {budgets.map((budget) => (
+            <option key={budget.id} value={budget.id}>
+              {budget.name}
+            </option>
           ))}
-        </div>
+        </select>
 
-        <div style={{ marginTop: 24, borderTop: '1px solid #eee', paddingTop: 16 }}>
-          <h3 style={{ fontSize: 18, fontWeight: 800 }}>Dupliquer un budget</h3>
-          <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
-            <select
-              value={duplicateSourceBudgetId}
-              onChange={(e) => setDuplicateSourceBudgetId(e.target.value)}
-              style={{ padding: 8, minWidth: 220 }}
-            >
-              <option value="">Budget source</option>
-              {budgetsSorted.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
+        {message && <div style={{ fontWeight: 700 }}>{message}</div>}
+      </div>
 
-            <input
-              placeholder="Nom du nouveau budget"
-              value={duplicateTargetName}
-              onChange={(e) => setDuplicateTargetName(e.target.value)}
-              style={{ padding: 8, minWidth: 260 }}
-            />
+      <section
+        style={{
+          marginTop: 22,
+          border: '1px solid #ddd',
+          borderRadius: 14,
+          padding: 16,
+          background: 'white',
+        }}
+      >
+        <h2 style={{ marginTop: 0 }}>Ajouter une catégorie</h2>
 
-            <button onClick={duplicateBudget} disabled={saving}>Dupliquer</button>
-          </div>
-        </div>
-      </section>
-
-      <section style={{ marginTop: 24, border: '1px solid #ddd', borderRadius: 12, padding: 16 }}>
-        <h2 style={{ fontSize: 20, fontWeight: 800 }}>Catégories</h2>
-
-        <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
-          <select
-            value={newCategoryBudgetId}
-            onChange={(e) => setNewCategoryBudgetId(e.target.value)}
-            style={{ padding: 8, minWidth: 220 }}
-          >
-            <option value="">Budget</option>
-            {budgetsSorted.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={newCategoryKind}
-            onChange={(e) => setNewCategoryKind(e.target.value as 'income' | 'expense')}
-            style={{ padding: 8 }}
-          >
-            <option value="expense">Dépense</option>
-            <option value="income">Recette</option>
-          </select>
-
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr auto',
+            gap: 12,
+            alignItems: 'center',
+          }}
+        >
           <input
-            placeholder="Nom de la catégorie"
+            type="text"
             value={newCategoryName}
             onChange={(e) => setNewCategoryName(e.target.value)}
-            style={{ padding: 8, minWidth: 260 }}
+            placeholder="Nom de la catégorie"
+            style={{
+              padding: '10px 12px',
+              borderRadius: 8,
+              border: '1px solid #ccc',
+            }}
           />
 
-          <button onClick={createCategory} disabled={saving}>Créer la catégorie</button>
-        </div>
-
-        <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
-          <select
-            value={categoryFilterBudgetId}
-            onChange={(e) => setCategoryFilterBudgetId(e.target.value)}
-            style={{ padding: 8, minWidth: 220 }}
+          <button
+            onClick={createCategory}
+            disabled={saving || !selectedBudgetId}
+            style={buttonStyle}
           >
-            <option value="">Tous les budgets</option>
-            {budgetsSorted.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={categoryFilterKind}
-            onChange={(e) => setCategoryFilterKind(e.target.value as 'income' | 'expense')}
-            style={{ padding: 8 }}
-          >
-            <option value="expense">Dépenses</option>
-            <option value="income">Recettes</option>
-          </select>
+            Ajouter
+          </button>
         </div>
+      </section>
 
-        <div style={{ marginTop: 20, display: 'grid', gap: 10 }}>
-          {visibleCategories.map((c) => (
-            <div key={c.id} style={{ border: '1px solid #eee', borderRadius: 10, padding: 12 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '220px 140px 1fr 100px auto auto', gap: 10, alignItems: 'center' }}>
-                <div>{budgetName(c.budget_id)}</div>
+      <div style={{ marginTop: 22, display: 'grid', gap: 16 }}>
+        {blocks.length === 0 ? (
+          <div style={{ opacity: 0.7 }}>Aucune catégorie pour ce budget.</div>
+        ) : (
+          blocks.map((block) => (
+            <section
+              key={block.category.id}
+              style={{
+                border: '1px solid #ddd',
+                borderRadius: 14,
+                padding: 16,
+                background: 'white',
+              }}
+            >
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr auto auto',
+                  gap: 10,
+                  alignItems: 'center',
+                }}
+              >
+                {editingCategoryId === block.category.id ? (
+                  <>
+                    <input
+                      type="text"
+                      value={editingCategoryValue}
+                      onChange={(e) => setEditingCategoryValue(e.target.value)}
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: 8,
+                        border: '1px solid #ccc',
+                      }}
+                    />
+                    <button onClick={saveCategoryEdit} disabled={saving} style={buttonStyle}>
+                      Enregistrer
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingCategoryId(null)
+                        setEditingCategoryValue('')
+                      }}
+                      disabled={saving}
+                      style={secondaryButtonStyle}
+                    >
+                      Annuler
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <h2 style={{ margin: 0, fontSize: 20 }}>{block.category.name}</h2>
+                    <button
+                      onClick={() => startEditCategory(block.category)}
+                      disabled={saving}
+                      style={secondaryButtonStyle}
+                    >
+                      Renommer
+                    </button>
+                    <button
+                      onClick={() => deleteCategory(block.category.id)}
+                      disabled={saving}
+                      style={dangerButtonStyle}
+                    >
+                      Supprimer
+                    </button>
+                  </>
+                )}
+              </div>
 
-                <select
-                  value={c.kind}
-                  onChange={(e) => {
-                    const kind = e.target.value as 'income' | 'expense'
-                    setCategories((prev) => prev.map((x) => (x.id === c.id ? { ...x, kind } : x)))
+              <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
+                {block.subcategories.length === 0 ? (
+                  <div style={{ opacity: 0.6 }}>Aucune sous-catégorie.</div>
+                ) : (
+                  block.subcategories.map((sub) => (
+                    <div
+                      key={sub.id}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr auto auto',
+                        gap: 10,
+                        alignItems: 'center',
+                        paddingLeft: 12,
+                      }}
+                    >
+                      {editingSubcategoryId === sub.id ? (
+                        <>
+                          <input
+                            type="text"
+                            value={editingSubcategoryValue}
+                            onChange={(e) => setEditingSubcategoryValue(e.target.value)}
+                            style={{
+                              padding: '10px 12px',
+                              borderRadius: 8,
+                              border: '1px solid #ccc',
+                            }}
+                          />
+                          <button
+                            onClick={saveSubcategoryEdit}
+                            disabled={saving}
+                            style={buttonStyle}
+                          >
+                            Enregistrer
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingSubcategoryId(null)
+                              setEditingSubcategoryValue('')
+                            }}
+                            disabled={saving}
+                            style={secondaryButtonStyle}
+                          >
+                            Annuler
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <div>{sub.name}</div>
+                          <button
+                            onClick={() => startEditSubcategory(sub)}
+                            disabled={saving}
+                            style={secondaryButtonStyle}
+                          >
+                            Renommer
+                          </button>
+                          <button
+                            onClick={() => deleteSubcategory(sub.id)}
+                            disabled={saving}
+                            style={dangerButtonStyle}
+                          >
+                            Supprimer
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div
+                style={{
+                  marginTop: 16,
+                  display: 'grid',
+                  gridTemplateColumns: '1fr auto',
+                  gap: 12,
+                  alignItems: 'center',
+                }}
+              >
+                <input
+                  type="text"
+                  value={newSubcategoryNames[block.category.id] ?? ''}
+                  onChange={(e) =>
+                    setNewSubcategoryNames((prev) => ({
+                      ...prev,
+                      [block.category.id]: e.target.value,
+                    }))
+                  }
+                  placeholder="Nom de la sous-catégorie"
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 8,
+                    border: '1px solid #ccc',
                   }}
-                  style={{ padding: 8 }}
+                />
+
+                <button
+                  onClick={() => createSubcategory(block.category.id)}
+                  disabled={saving}
+                  style={buttonStyle}
                 >
-                  <option value="expense">Dépense</option>
-                  <option value="income">Recette</option>
-                </select>
-
-                <input
-                  value={c.name}
-                  onChange={(e) => {
-                    setCategories((prev) => prev.map((x) => (x.id === c.id ? { ...x, name: e.target.value } : x)))
-                  }}
-                  style={{ padding: 8 }}
-                />
-
-                <input
-                  type="number"
-                  value={c.ordre}
-                  onChange={(e) => {
-                    const ordre = Number(e.target.value || 999)
-                    setCategories((prev) => prev.map((x) => (x.id === c.id ? { ...x, ordre } : x)))
-                  }}
-                  style={{ padding: 8 }}
-                />
-
-                <button onClick={() => updateCategory(c.id, { name: c.name, kind: c.kind, ordre: c.ordre })}>
-                  Sauver
-                </button>
-
-                <button onClick={() => deleteCategory(c.id)}>
-                  Supprimer
+                  Ajouter la sous-catégorie
                 </button>
               </div>
-            </div>
-          ))}
-
-          {visibleCategories.length === 0 && (
-            <div style={{ opacity: 0.7 }}>Aucune catégorie pour ce filtre.</div>
-          )}
-        </div>
-      </section>
-
-      <section style={{ marginTop: 24, border: '1px solid #ddd', borderRadius: 12, padding: 16 }}>
-        <h2 style={{ fontSize: 20, fontWeight: 800 }}>Sous-catégories</h2>
-
-        <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
-          <select
-            value={newSubcategoryCategoryId}
-            onChange={(e) => setNewSubcategoryCategoryId(e.target.value)}
-            style={{ padding: 8, minWidth: 320 }}
-          >
-            <option value="">Catégorie</option>
-            {categoriesSorted.map((c) => (
-              <option key={c.id} value={c.id}>
-                {budgetName(c.budget_id)} • {c.kind === 'income' ? 'Recette' : 'Dépense'} • {c.name}
-              </option>
-            ))}
-          </select>
-
-          <input
-            placeholder="Nom de la sous-catégorie"
-            value={newSubcategoryName}
-            onChange={(e) => setNewSubcategoryName(e.target.value)}
-            style={{ padding: 8, minWidth: 260 }}
-          />
-
-          <button onClick={createSubcategory} disabled={saving}>Créer la sous-catégorie</button>
-        </div>
-
-        <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
-          <select
-            value={subcategoryFilterBudgetId}
-            onChange={(e) => setSubcategoryFilterBudgetId(e.target.value)}
-            style={{ padding: 8, minWidth: 220 }}
-          >
-            <option value="">Tous les budgets</option>
-            {budgetsSorted.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={subcategoryFilterKind}
-            onChange={(e) => setSubcategoryFilterKind(e.target.value as 'income' | 'expense')}
-            style={{ padding: 8 }}
-          >
-            <option value="expense">Dépenses</option>
-            <option value="income">Recettes</option>
-          </select>
-        </div>
-
-        <div style={{ marginTop: 20, display: 'grid', gap: 10 }}>
-          {visibleSubcategories.map((s) => (
-            <div key={s.id} style={{ border: '1px solid #eee', borderRadius: 10, padding: 12 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '420px 1fr 100px auto auto', gap: 10, alignItems: 'center' }}>
-                <div>{categoryLabel(s.category_id)}</div>
-
-                <input
-                  value={s.name}
-                  onChange={(e) => {
-                    setSubcategories((prev) => prev.map((x) => (x.id === s.id ? { ...x, name: e.target.value } : x)))
-                  }}
-                  style={{ padding: 8 }}
-                />
-
-                <input
-                  type="number"
-                  value={s.ordre}
-                  onChange={(e) => {
-                    const ordre = Number(e.target.value || 999)
-                    setSubcategories((prev) => prev.map((x) => (x.id === s.id ? { ...x, ordre } : x)))
-                  }}
-                  style={{ padding: 8 }}
-                />
-
-                <button onClick={() => updateSubcategory(s.id, { name: s.name, ordre: s.ordre })}>
-                  Sauver
-                </button>
-
-                <button onClick={() => deleteSubcategory(s.id)}>
-                  Supprimer
-                </button>
-              </div>
-            </div>
-          ))}
-
-          {visibleSubcategories.length === 0 && (
-            <div style={{ opacity: 0.7 }}>Aucune sous-catégorie pour ce filtre.</div>
-          )}
-        </div>
-      </section>
-
-      <section style={{ marginTop: 24, border: '1px solid #ddd', borderRadius: 12, padding: 16 }}>
-        <h2 style={{ fontSize: 20, fontWeight: 800 }}>Mapping CR / Bilan — Catégories</h2>
-
-        <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
-          <select
-            value={mappingCategoryFilterBudgetId}
-            onChange={(e) => setMappingCategoryFilterBudgetId(e.target.value)}
-            style={{ padding: 8, minWidth: 220 }}
-          >
-            <option value="">Tous les budgets</option>
-            {budgetsSorted.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={mappingCategoryFilterKind}
-            onChange={(e) => setMappingCategoryFilterKind(e.target.value as 'income' | 'expense')}
-            style={{ padding: 8 }}
-          >
-            <option value="expense">Dépenses</option>
-            <option value="income">Recettes</option>
-          </select>
-
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input
-              type="checkbox"
-              checked={showMappedCategories}
-              onChange={(e) => setShowMappedCategories(e.target.checked)}
-            />
-            Voir aussi les catégories déjà mappées
-          </label>
-        </div>
-
-        <div style={{ marginTop: 20, display: 'grid', gap: 10 }}>
-          {visibleCategoryMappings.map((c) => {
-            const mapping = categoryMappings[c.id] ?? {
-              category_id: c.id,
-              poste_cr: '',
-              poste_bilan: '',
-            }
-
-            const unmapped = !hasFullMapping(mapping.poste_cr, mapping.poste_bilan)
-
-            return (
-              <div
-                key={c.id}
-                style={{
-                  border: '1px solid #eee',
-                  borderRadius: 10,
-                  padding: 12,
-                  background: unmapped ? '#fffaf0' : 'white',
-                }}
-              >
-                <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr 1fr auto', gap: 10, alignItems: 'center' }}>
-                  <div>{budgetName(c.budget_id)} • {c.kind === 'income' ? 'Recette' : 'Dépense'} • {c.name}</div>
-
-                  <select
-                    value={mapping.poste_cr ?? ''}
-                    onChange={(e) =>
-                      setCategoryMappings({
-                        ...categoryMappings,
-                        [c.id]: { ...mapping, poste_cr: e.target.value },
-                      })
-                    }
-                    style={{ padding: 8 }}
-                  >
-                    <option value="">—</option>
-                    {crPostes.map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    value={mapping.poste_bilan ?? ''}
-                    onChange={(e) =>
-                      setCategoryMappings({
-                        ...categoryMappings,
-                        [c.id]: { ...mapping, poste_bilan: e.target.value },
-                      })
-                    }
-                    style={{ padding: 8 }}
-                  >
-                    <option value="">—</option>
-                    {bilanPostes.map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
-                  </select>
-
-                  <button onClick={() => saveCategoryMapping(c.id)}>Sauvegarder</button>
-                </div>
-              </div>
-            )
-          })}
-
-          {visibleCategoryMappings.length === 0 && (
-            <div style={{ opacity: 0.7 }}>Aucune catégorie à afficher pour ce filtre.</div>
-          )}
-        </div>
-      </section>
-
-      <section style={{ marginTop: 24, border: '1px solid #ddd', borderRadius: 12, padding: 16, marginBottom: 40 }}>
-        <h2 style={{ fontSize: 20, fontWeight: 800 }}>Mapping CR / Bilan — Sous-catégories</h2>
-
-        <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
-          <select
-            value={mappingSubcategoryFilterBudgetId}
-            onChange={(e) => setMappingSubcategoryFilterBudgetId(e.target.value)}
-            style={{ padding: 8, minWidth: 220 }}
-          >
-            <option value="">Tous les budgets</option>
-            {budgetsSorted.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={mappingSubcategoryFilterKind}
-            onChange={(e) => setMappingSubcategoryFilterKind(e.target.value as 'income' | 'expense')}
-            style={{ padding: 8 }}
-          >
-            <option value="expense">Dépenses</option>
-            <option value="income">Recettes</option>
-          </select>
-
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input
-              type="checkbox"
-              checked={showMappedSubcategories}
-              onChange={(e) => setShowMappedSubcategories(e.target.checked)}
-            />
-            Voir aussi les sous-catégories déjà mappées
-          </label>
-        </div>
-
-        <div style={{ marginTop: 20, display: 'grid', gap: 10 }}>
-          {visibleSubcategoryMappings.map((s) => {
-            const mapping = subcategoryMappings[s.id] ?? {
-              subcategory_id: s.id,
-              poste_cr: '',
-              poste_bilan: '',
-            }
-
-            const unmapped = !hasFullMapping(mapping.poste_cr, mapping.poste_bilan)
-
-            return (
-              <div
-                key={s.id}
-                style={{
-                  border: '1px solid #eee',
-                  borderRadius: 10,
-                  padding: 12,
-                  background: unmapped ? '#fffaf0' : 'white',
-                }}
-              >
-                <div style={{ display: 'grid', gridTemplateColumns: '420px 1fr 1fr auto', gap: 10, alignItems: 'center' }}>
-                  <div>{categoryLabel(s.category_id)} • {s.name}</div>
-
-                  <select
-                    value={mapping.poste_cr ?? ''}
-                    onChange={(e) =>
-                      setSubcategoryMappings({
-                        ...subcategoryMappings,
-                        [s.id]: { ...mapping, poste_cr: e.target.value },
-                      })
-                    }
-                    style={{ padding: 8 }}
-                  >
-                    <option value="">—</option>
-                    {crPostes.map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    value={mapping.poste_bilan ?? ''}
-                    onChange={(e) =>
-                      setSubcategoryMappings({
-                        ...subcategoryMappings,
-                        [s.id]: { ...mapping, poste_bilan: e.target.value },
-                      })
-                    }
-                    style={{ padding: 8 }}
-                  >
-                    <option value="">—</option>
-                    {bilanPostes.map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
-                  </select>
-
-                  <button onClick={() => saveSubcategoryMapping(s.id)}>Sauvegarder</button>
-                </div>
-              </div>
-            )
-          })}
-
-          {visibleSubcategoryMappings.length === 0 && (
-            <div style={{ opacity: 0.7 }}>Aucune sous-catégorie à afficher pour ce filtre.</div>
-          )}
-        </div>
-      </section>
+            </section>
+          ))
+        )}
+      </div>
     </main>
   )
+}
+
+const buttonStyle: React.CSSProperties = {
+  padding: '10px 14px',
+  borderRadius: 8,
+  border: '1px solid #ccc',
+  background: 'white',
+  cursor: 'pointer',
+}
+
+const secondaryButtonStyle: React.CSSProperties = {
+  padding: '8px 12px',
+  borderRadius: 8,
+  border: '1px solid #ccc',
+  background: '#f7f7f7',
+  cursor: 'pointer',
+}
+
+const dangerButtonStyle: React.CSSProperties = {
+  padding: '8px 12px',
+  borderRadius: 8,
+  border: '1px solid #d8b0b0',
+  background: '#fff3f3',
+  cursor: 'pointer',
 }
