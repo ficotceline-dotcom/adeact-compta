@@ -69,6 +69,14 @@ type CategoryBlock = {
   lines: DisplayLine[]
 }
 
+function normalizeText(value: string | null | undefined) {
+  return (value ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+}
+
 function centsToEuros(cents: number) {
   return (cents / 100).toFixed(2)
 }
@@ -89,43 +97,72 @@ function keyOf(kind: 'income' | 'expense', categoryId: string, subcategoryId: st
   return `${kind}__${categoryId}__${subcategoryId ?? 'none'}`
 }
 
-function inferKindFromPosteCR(poste: string | null | undefined): 'income' | 'expense' | null {
-  if (!poste) return null
-  const p = poste.toLowerCase()
+function inferKindFromText(value: string | null | undefined): 'income' | 'expense' | null {
+  const t = normalizeText(value)
+  if (!t) return null
 
   const incomeHints = [
-    'vente',
-    'ventes',
-    'cotisation',
-    'cotisations',
-    'mécénat',
-    'mecenat',
     'subvention',
-    'subventions',
-    'produit',
-    'produits',
-    'prestations',
-    'prestation',
-    'concours publics',
+    'fondation',
+    'vente',
+    'billet',
+    'billetterie',
     'don',
-    'dons',
+    'cotisation',
+    'mecenat',
+    'partenariat',
+    'sponsor',
+    'prestation',
+    'produit',
+    'caisse des depots',
+    'mairie',
+    'departement',
+    'region',
+    'credit agricole',
+    'banque alimentaire', // au cas où un jour
   ]
 
   const expenseHints = [
-    'achat',
-    'achats',
-    'charge',
-    'charges',
-    'fourniture',
-    'fournitures',
-    'autres achats',
-    'autres charges',
+    'frais',
+    'communication',
+    'representation',
+    'restauration',
+    'solidarite',
+    'location',
+    'sacem',
+    'son',
+    'lumiere',
+    'lumieres',
+    'maquillage',
+    'decor',
+    'decors',
+    'costume',
+    'costumes',
+    'vehicule',
+    'theatre',
+    'securite',
+    'impression',
+    'accessoire',
+    'accessoires',
+    'repetition',
+    'repetitions',
+    'gite',
+    'main d oeuvre',
+    "main d'oeuvre",
+    'captation',
+    'livret',
+    'livrets',
   ]
 
-  if (incomeHints.some((hint) => p.includes(hint))) return 'income'
-  if (expenseHints.some((hint) => p.includes(hint))) return 'expense'
+  if (incomeHints.some((hint) => t.includes(hint))) return 'income'
+  if (expenseHints.some((hint) => t.includes(hint))) return 'expense'
 
   return null
+}
+
+function singleObservedKind(kinds: Array<'income' | 'expense'>): 'income' | 'expense' | null {
+  const uniq = Array.from(new Set(kinds))
+  return uniq.length === 1 ? uniq[0] : null
 }
 
 export default function AdminPrevisionnelPage() {
@@ -275,6 +312,36 @@ export default function AdminPrevisionnelPage() {
     return map
   }, [transactions])
 
+  const visibleCategories = useMemo(() => {
+    return categories.filter((c) => c.budget_id === selectedBudgetId)
+  }, [categories, selectedBudgetId])
+
+  const visibleCategoryIds = useMemo(() => {
+    return new Set(visibleCategories.map((c) => c.id))
+  }, [visibleCategories])
+
+  const visibleSubcategories = useMemo(() => {
+    return subcategories.filter(
+      (s) => s.category_id && visibleCategoryIds.has(s.category_id)
+    )
+  }, [subcategories, visibleCategoryIds])
+
+  const categoryNameMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const c of visibleCategories) {
+      map.set(c.id, c.name)
+    }
+    return map
+  }, [visibleCategories])
+
+  const subcategoryNameMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const s of visibleSubcategories) {
+      map.set(s.id, s.name)
+    }
+    return map
+  }, [visibleSubcategories])
+
   const categoryPosteMap = useMemo(() => {
     const map = new Map<string, string>()
     for (const row of categoryMappings) {
@@ -295,100 +362,65 @@ export default function AdminPrevisionnelPage() {
     return map
   }, [subcategoryMappings])
 
-  const visibleCategories = useMemo(() => {
-    return categories.filter((c) => c.budget_id === selectedBudgetId)
-  }, [categories, selectedBudgetId])
+  const forecastKindsByLine = useMemo(() => {
+    const map = new Map<string, Array<'income' | 'expense'>>()
 
-  const visibleCategoryIds = useMemo(() => {
-    return new Set(visibleCategories.map((c) => c.id))
-  }, [visibleCategories])
-
-  const visibleSubcategories = useMemo(() => {
-    return subcategories.filter(
-      (s) => s.category_id && visibleCategoryIds.has(s.category_id)
-    )
-  }, [subcategories, visibleCategoryIds])
-
-  const forecastKindBySubcategory = useMemo(() => {
-    const map = new Map<string, 'income' | 'expense'>()
     for (const row of forecastRows) {
-      if (
-        row.budget_id === selectedBudgetId &&
-        row.subcategory_id &&
-        (row.kind === 'income' || row.kind === 'expense')
-      ) {
-        map.set(row.subcategory_id, row.kind)
-      }
+      if (row.budget_id !== selectedBudgetId) continue
+      if (!row.category_id) continue
+      if (row.kind !== 'income' && row.kind !== 'expense') continue
+
+      const key = `${row.category_id}__${row.subcategory_id ?? 'none'}`
+      const current = map.get(key) ?? []
+      current.push(row.kind)
+      map.set(key, current)
     }
+
     return map
   }, [forecastRows, selectedBudgetId])
 
-  const forecastKindByCategory = useMemo(() => {
-    const map = new Map<string, 'income' | 'expense'>()
-    for (const row of forecastRows) {
-      if (
-        row.budget_id === selectedBudgetId &&
-        row.category_id &&
-        !row.subcategory_id &&
-        (row.kind === 'income' || row.kind === 'expense')
-      ) {
-        map.set(row.category_id, row.kind)
-      }
-    }
-    return map
-  }, [forecastRows, selectedBudgetId])
+  const actualKindsByLine = useMemo(() => {
+    const map = new Map<string, Array<'income' | 'expense'>>()
 
-  const actualKindBySubcategory = useMemo(() => {
-    const map = new Map<string, 'income' | 'expense'>()
     for (const row of allocationRows) {
-      if (
-        row.budget_id === selectedBudgetId &&
-        row.subcategory_id &&
-        row.transaction_id
-      ) {
-        const txKind = transactionKindMap.get(row.transaction_id)
-        if (txKind) map.set(row.subcategory_id, txKind)
-      }
-    }
-    return map
-  }, [allocationRows, transactionKindMap, selectedBudgetId])
+      if (row.budget_id !== selectedBudgetId) continue
+      if (!row.category_id) continue
+      if (!row.transaction_id) continue
 
-  const actualKindByCategory = useMemo(() => {
-    const map = new Map<string, 'income' | 'expense'>()
-    for (const row of allocationRows) {
-      if (
-        row.budget_id === selectedBudgetId &&
-        row.category_id &&
-        !row.subcategory_id &&
-        row.transaction_id
-      ) {
-        const txKind = transactionKindMap.get(row.transaction_id)
-        if (txKind) map.set(row.category_id, txKind)
-      }
+      const txKind = transactionKindMap.get(row.transaction_id)
+      if (!txKind) continue
+
+      const key = `${row.category_id}__${row.subcategory_id ?? 'none'}`
+      const current = map.get(key) ?? []
+      current.push(txKind)
+      map.set(key, current)
     }
+
     return map
-  }, [allocationRows, transactionKindMap, selectedBudgetId])
+  }, [allocationRows, selectedBudgetId, transactionKindMap])
 
   function resolveKind(categoryId: string, subcategoryId: string | null): 'income' | 'expense' {
+    const lineKey = `${categoryId}__${subcategoryId ?? 'none'}`
+
+    const observedForecastKind = singleObservedKind(forecastKindsByLine.get(lineKey) ?? [])
+    if (observedForecastKind) return observedForecastKind
+
+    const observedActualKind = singleObservedKind(actualKindsByLine.get(lineKey) ?? [])
+    if (observedActualKind) return observedActualKind
+
     if (subcategoryId) {
-      const k1 = forecastKindBySubcategory.get(subcategoryId)
-      if (k1) return k1
+      const fromSubPoste = inferKindFromText(subcategoryPosteMap.get(subcategoryId))
+      if (fromSubPoste) return fromSubPoste
 
-      const k2 = actualKindBySubcategory.get(subcategoryId)
-      if (k2) return k2
-
-      const k3 = inferKindFromPosteCR(subcategoryPosteMap.get(subcategoryId))
-      if (k3) return k3
+      const fromSubName = inferKindFromText(subcategoryNameMap.get(subcategoryId))
+      if (fromSubName) return fromSubName
     }
 
-    const k4 = forecastKindByCategory.get(categoryId)
-    if (k4) return k4
+    const fromCatPoste = inferKindFromText(categoryPosteMap.get(categoryId))
+    if (fromCatPoste) return fromCatPoste
 
-    const k5 = actualKindByCategory.get(categoryId)
-    if (k5) return k5
-
-    const k6 = inferKindFromPosteCR(categoryPosteMap.get(categoryId))
-    if (k6) return k6
+    const fromCatName = inferKindFromText(categoryNameMap.get(categoryId))
+    if (fromCatName) return fromCatName
 
     return 'expense'
   }
@@ -401,6 +433,7 @@ export default function AdminPrevisionnelPage() {
 
       if (subs.length === 0) {
         const kind = resolveKind(category.id, null)
+
         lines.push({
           categoryId: category.id,
           categoryName: category.name,
@@ -413,6 +446,7 @@ export default function AdminPrevisionnelPage() {
       } else {
         for (const sub of subs) {
           const kind = resolveKind(category.id, sub.id)
+
           lines.push({
             categoryId: category.id,
             categoryName: category.name,
@@ -427,36 +461,30 @@ export default function AdminPrevisionnelPage() {
     }
 
     return lines
-  }, [
-    visibleCategories,
-    visibleSubcategories,
-    values,
-    forecastKindBySubcategory,
-    forecastKindByCategory,
-    actualKindBySubcategory,
-    actualKindByCategory,
-    subcategoryPosteMap,
-    categoryPosteMap,
-  ])
+  }, [visibleCategories, visibleSubcategories, values, forecastKindsByLine, actualKindsByLine])
 
   const expenseBlocks = useMemo<CategoryBlock[]>(() => {
-    return visibleCategories.map((category) => ({
-      id: category.id,
-      name: category.name,
-      lines: displayLines.filter(
-        (line) => line.categoryId === category.id && line.kind === 'expense'
-      ),
-    }))
+    return visibleCategories
+      .map((category) => ({
+        id: category.id,
+        name: category.name,
+        lines: displayLines.filter(
+          (line) => line.categoryId === category.id && line.kind === 'expense'
+        ),
+      }))
+      .filter((block) => block.lines.length > 0)
   }, [visibleCategories, displayLines])
 
   const incomeBlocks = useMemo<CategoryBlock[]>(() => {
-    return visibleCategories.map((category) => ({
-      id: category.id,
-      name: category.name,
-      lines: displayLines.filter(
-        (line) => line.categoryId === category.id && line.kind === 'income'
-      ),
-    }))
+    return visibleCategories
+      .map((category) => ({
+        id: category.id,
+        name: category.name,
+        lines: displayLines.filter(
+          (line) => line.categoryId === category.id && line.kind === 'income'
+        ),
+      }))
+      .filter((block) => block.lines.length > 0)
   }, [visibleCategories, displayLines])
 
   const expenseTotalCents = useMemo(() => {
@@ -544,11 +572,7 @@ export default function AdminPrevisionnelPage() {
   }
 
   if (loading) {
-    return (
-      <main style={{ padding: 24, fontFamily: 'system-ui' }}>
-        Chargement…
-      </main>
-    )
+    return <main style={{ padding: 24, fontFamily: 'system-ui' }}>Chargement…</main>
   }
 
   return (
@@ -699,32 +723,32 @@ export default function AdminPrevisionnelPage() {
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Dépenses</h2>
 
           <div style={{ marginTop: 18, display: 'grid', gap: 18 }}>
-            {expenseBlocks.map((category) => (
-              <div key={`expense-${category.id}`}>
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    gap: 12,
-                    fontWeight: 800,
-                    fontSize: 16,
-                    marginBottom: 10,
-                  }}
-                >
-                  <div>{category.name}</div>
-                  <div>
-                    {centsToEuros(
-                      category.lines.reduce((sum, line) => sum + eurosStringToCents(line.value), 0)
-                    )}{' '}
-                    €
+            {expenseBlocks.length === 0 ? (
+              <div style={{ opacity: 0.7 }}>Aucune dépense.</div>
+            ) : (
+              expenseBlocks.map((category) => (
+                <div key={`expense-${category.id}`}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      fontWeight: 800,
+                      fontSize: 16,
+                      marginBottom: 10,
+                    }}
+                  >
+                    <div>{category.name}</div>
+                    <div>
+                      {centsToEuros(
+                        category.lines.reduce((sum, line) => sum + eurosStringToCents(line.value), 0)
+                      )}{' '}
+                      €
+                    </div>
                   </div>
-                </div>
 
-                <div style={{ display: 'grid', gap: 8 }}>
-                  {category.lines.length === 0 ? (
-                    <div style={{ paddingLeft: 12, opacity: 0.5 }}>Aucune ligne en dépense</div>
-                  ) : (
-                    category.lines.map((line) => (
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {category.lines.map((line) => (
                       <div
                         key={keyOf(line.kind, line.categoryId, line.subcategoryId)}
                         style={{
@@ -751,11 +775,11 @@ export default function AdminPrevisionnelPage() {
                           }}
                         />
                       </div>
-                    ))
-                  )}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </section>
 
@@ -770,32 +794,32 @@ export default function AdminPrevisionnelPage() {
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Recettes</h2>
 
           <div style={{ marginTop: 18, display: 'grid', gap: 18 }}>
-            {incomeBlocks.map((category) => (
-              <div key={`income-${category.id}`}>
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    gap: 12,
-                    fontWeight: 800,
-                    fontSize: 16,
-                    marginBottom: 10,
-                  }}
-                >
-                  <div>{category.name}</div>
-                  <div>
-                    {centsToEuros(
-                      category.lines.reduce((sum, line) => sum + eurosStringToCents(line.value), 0)
-                    )}{' '}
-                    €
+            {incomeBlocks.length === 0 ? (
+              <div style={{ opacity: 0.7 }}>Aucune recette.</div>
+            ) : (
+              incomeBlocks.map((category) => (
+                <div key={`income-${category.id}`}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      fontWeight: 800,
+                      fontSize: 16,
+                      marginBottom: 10,
+                    }}
+                  >
+                    <div>{category.name}</div>
+                    <div>
+                      {centsToEuros(
+                        category.lines.reduce((sum, line) => sum + eurosStringToCents(line.value), 0)
+                      )}{' '}
+                      €
+                    </div>
                   </div>
-                </div>
 
-                <div style={{ display: 'grid', gap: 8 }}>
-                  {category.lines.length === 0 ? (
-                    <div style={{ paddingLeft: 12, opacity: 0.5 }}>Aucune ligne en recette</div>
-                  ) : (
-                    category.lines.map((line) => (
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {category.lines.map((line) => (
                       <div
                         key={keyOf(line.kind, line.categoryId, line.subcategoryId)}
                         style={{
@@ -822,11 +846,11 @@ export default function AdminPrevisionnelPage() {
                           }}
                         />
                       </div>
-                    ))
-                  )}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </section>
       </div>
