@@ -54,6 +54,7 @@ type DisplayLine = {
   label: string
   forecastCents: number
   actualCents: number
+  isOrphan?: boolean
 }
 
 type CategoryBlock = {
@@ -75,7 +76,6 @@ function diffColor(kind: 'income' | 'expense', diff: number) {
     if (diff < 0) return '#027a48'
     return '#667085'
   }
-
   if (diff > 0) return '#027a48'
   if (diff < 0) return '#b42318'
   return '#667085'
@@ -114,25 +114,20 @@ export default function PrevisionnelVsRealisePage() {
         .from('budgets')
         .select('id,name,ordre,is_archived')
         .order('ordre'),
-
       supabase
         .from('categories')
         .select('id,name,budget_id,kind')
         .order('name'),
-
       supabase
         .from('subcategories')
         .select('id,name,category_id')
         .order('name'),
-
       supabase
         .from('budget_forecasts')
         .select('budget_id,kind,category_id,subcategory_id,amount_cents'),
-
       supabase
         .from('transaction_allocations')
         .select('id,budget_id,category_id,subcategory_id,amount_cents,transaction_id'),
-
       supabase
         .from('transactions')
         .select('id,kind,amount_cents'),
@@ -178,9 +173,7 @@ export default function PrevisionnelVsRealisePage() {
 
   const txMap = useMemo(() => {
     const map = new Map<string, TransactionRow>()
-    for (const tx of transactions) {
-      map.set(tx.id, tx)
-    }
+    for (const tx of transactions) map.set(tx.id, tx)
     return map
   }, [transactions])
 
@@ -194,12 +187,11 @@ export default function PrevisionnelVsRealisePage() {
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [categories, selectedBudgetId])
 
-  const visibleSubcategories = useMemo(() => {
-    const visibleCategoryIds = new Set(budgetCategories.map((c) => c.id))
-    return subcategories
-      .filter((s) => visibleCategoryIds.has(s.category_id))
-      .sort((a, b) => a.name.localeCompare(b.name))
-  }, [subcategories, budgetCategories])
+  const subcategoryMap = useMemo(() => {
+    const map = new Map<string, Subcategory>()
+    for (const s of subcategories) map.set(s.id, s)
+    return map
+  }, [subcategories])
 
   const forecastMap = useMemo(() => {
     const map = new Map<string, number>()
@@ -240,39 +232,95 @@ export default function PrevisionnelVsRealisePage() {
     const result: DisplayLine[] = []
 
     for (const category of budgetCategories) {
-      const subs = visibleSubcategories.filter((s) => s.category_id === category.id)
+      const categoryKind = category.kind as 'income' | 'expense'
 
-      if (subs.length === 0) {
-        const key = `${category.kind}__${category.id}__none`
+      const refSubs = subcategories
+        .filter((s) => s.category_id === category.id)
+        .sort((a, b) => a.name.localeCompare(b.name))
+
+      const dynamicSubIds = new Set<string | null>()
+
+      for (const row of forecasts) {
+        if (row.budget_id !== selectedBudgetId) continue
+        if (row.category_id !== category.id) continue
+        if (row.kind !== categoryKind) continue
+        dynamicSubIds.add(row.subcategory_id ?? null)
+      }
+
+      for (const row of allocations) {
+        if (row.budget_id !== selectedBudgetId) continue
+        if (row.category_id !== category.id) continue
+        if (!row.transaction_id) continue
+
+        const tx = txMap.get(row.transaction_id)
+        if (!tx || tx.kind !== categoryKind) continue
+
+        dynamicSubIds.add(row.subcategory_id ?? null)
+      }
+
+      const refSubIds = new Set(refSubs.map((s) => s.id))
+
+      const mergedSubEntries: Array<{
+        subcategoryId: string | null
+        label: string
+        isOrphan?: boolean
+      }> = []
+
+      for (const sub of refSubs) {
+        mergedSubEntries.push({
+          subcategoryId: sub.id,
+          label: sub.name,
+        })
+      }
+
+      // ligne catégorie seule si utilisée
+      if (dynamicSubIds.has(null)) {
+        mergedSubEntries.unshift({
+          subcategoryId: null,
+          label: 'Sans sous-catégorie',
+        })
+      }
+
+      // sous-catégories encore présentes dans les mouvements / prévisionnels mais plus au référentiel
+      for (const subId of Array.from(dynamicSubIds)) {
+        if (subId === null) continue
+        if (refSubIds.has(subId)) continue
+
+        const orphanSub = subcategoryMap.get(subId)
+
+        mergedSubEntries.push({
+          subcategoryId: subId,
+          label: orphanSub?.name ?? 'Sous-catégorie supprimée',
+          isOrphan: true,
+        })
+      }
+
+      // si aucune sous-catégorie du tout, on garde au moins une ligne catégorie
+      if (mergedSubEntries.length === 0) {
+        mergedSubEntries.push({
+          subcategoryId: null,
+          label: category.name,
+        })
+      }
+
+      for (const entry of mergedSubEntries) {
+        const key = `${categoryKind}__${category.id}__${entry.subcategoryId ?? 'none'}`
 
         result.push({
           categoryId: category.id,
           categoryName: category.name,
-          categoryKind: category.kind as 'income' | 'expense',
-          subcategoryId: null,
-          label: category.name,
+          categoryKind,
+          subcategoryId: entry.subcategoryId,
+          label: entry.label,
           forecastCents: forecastMap.get(key) ?? 0,
           actualCents: actualMap.get(key) ?? 0,
+          isOrphan: entry.isOrphan,
         })
-      } else {
-        for (const sub of subs) {
-          const key = `${category.kind}__${category.id}__${sub.id}`
-
-          result.push({
-            categoryId: category.id,
-            categoryName: category.name,
-            categoryKind: category.kind as 'income' | 'expense',
-            subcategoryId: sub.id,
-            label: sub.name,
-            forecastCents: forecastMap.get(key) ?? 0,
-            actualCents: actualMap.get(key) ?? 0,
-          })
-        }
       }
     }
 
     return result
-  }, [budgetCategories, visibleSubcategories, forecastMap, actualMap])
+  }, [budgetCategories, subcategories, subcategoryMap, forecasts, allocations, txMap, selectedBudgetId, forecastMap, actualMap])
 
   const incomeBlocks = useMemo<CategoryBlock[]>(() => {
     return budgetCategories
@@ -429,7 +477,12 @@ function ReportTable({
 
                   return (
                     <tr key={`${line.categoryId}-${line.subcategoryId ?? 'none'}`}>
-                      <td style={tdLeftStyle}>{line.label}</td>
+                      <td style={tdLeftStyle}>
+                        {line.label}
+                        {line.isOrphan ? (
+                          <span style={orphanTagStyle}>référentiel à mettre à jour</span>
+                        ) : null}
+                      </td>
                       <td style={tdRightStyle}>{euros(line.forecastCents)} €</td>
                       <td style={tdRightStyle}>{euros(line.actualCents)} €</td>
                       <td
@@ -659,6 +712,16 @@ const totalRightStyle: React.CSSProperties = {
   fontWeight: 800,
   borderTop: '2px solid #e5e5e5',
   fontVariantNumeric: 'tabular-nums',
+}
+
+const orphanTagStyle: React.CSSProperties = {
+  marginLeft: 8,
+  fontSize: 12,
+  padding: '2px 6px',
+  borderRadius: 999,
+  background: '#fff4e5',
+  color: '#9a6700',
+  border: '1px solid #f5d28c',
 }
 
 const emptyStyle: React.CSSProperties = {
