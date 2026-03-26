@@ -1,50 +1,57 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
+import { useUserPermissions } from '@/lib/useUserPermissions'
 
-const principalLinks = [
-  { href: '/', label: 'Accueil' },
-  { href: '/members', label: 'Membres' },
-  { href: '/transactions/new', label: 'Nouvelle transaction' },
-  { href: '/transactions', label: 'Transactions' },
-  { href: '/budgets/archived', label: 'Projets archivés' },
+type NavLink = {
+  href: string
+  label: string
+  permission: string
+}
+
+const principalLinks: NavLink[] = [
+  { href: '/', label: 'Accueil', permission: 'home' },
+  { href: '/members', label: 'Membres', permission: 'members' },
+  { href: '/transactions/new', label: 'Nouvelle transaction', permission: 'new_transaction' },
+  { href: '/transactions', label: 'Transactions', permission: 'transactions' },
+  { href: '/budgets/archived', label: 'Projets archivés', permission: 'archived_projects' },
 ]
 
-const followupLinks = [
-  { href: '/receipts/requests', label: 'Demandes PJ' },
-  { href: '/reimbursement-request', label: 'Demande de remboursement' },
-  { href: '/evolutions', label: 'Propositions d’évolutions' },
+const followupLinks: NavLink[] = [
+  { href: '/receipts/requests', label: 'Demandes PJ', permission: 'receipt_requests' },
+  { href: '/reimbursement-request', label: 'Demande de remboursement', permission: 'reimbursement_requests' },
+  { href: '/evolutions', label: 'Propositions d’évolutions', permission: 'evolutions' },
 ]
 
-const reportLinks = [
-  { href: '/reports/previsionnel', label: 'Prévisionnel vs réalisé' },
-  { href: '/reports/cr', label: 'Compte de résultat' },
-  { href: '/reports/bilan', label: 'Bilan annuel' },
+const reportLinks: NavLink[] = [
+  { href: '/reports/previsionnel', label: 'Prévisionnel vs réalisé', permission: 'forecast_vs_actual' },
+  { href: '/reports/cr', label: 'Compte de résultat', permission: 'income_statement' },
+  { href: '/reports/bilan', label: 'Bilan annuel', permission: 'annual_balance_sheet' },
 ]
 
-const billingLinks = [
-  { href: '/admin/facturation/settings', label: 'Paramétrage' },
-  { href: '/admin/facturation/devis', label: 'Devis' },
-  { href: '/admin/facturation/factures', label: 'Factures' },
-  { href: '/admin/facturation/rescrits', label: 'Rescrits' },
+const billingLinks: NavLink[] = [
+  { href: '/admin/facturation/settings', label: 'Paramétrage', permission: 'billing_settings' },
+  { href: '/admin/facturation/devis', label: 'Devis', permission: 'quotes' },
+  { href: '/admin/facturation/factures', label: 'Factures', permission: 'invoices' },
+  { href: '/admin/facturation/rescrits', label: 'Rescrits', permission: 'tax_rulings' },
 ]
 
-const adminLinks = [
-  { href: '/admin/reimbursements', label: 'Gestion remboursements' },
-  { href: '/receipts/missing', label: 'PJ manquantes' },
-  { href: '/admin/rescrits', label: 'Rescrits à fournir' },
-  { href: '/admin/exports', label: 'Exports' },
-  { href: '/admin/membres', label: 'Membres' },
-  { href: '/settings/mapping', label: 'Mapping' },
-  { href: '/admin/referentiel', label: 'Admin référentiel' },
-  { href: '/admin/previsionnel', label: 'Admin prévisionnel' },
-  { href: '/admin/evolutions', label: 'Admin évolutions' },
-  { href: '/admin/import', label: 'Import de masse' },
-  { href: '/admin/doublons', label: 'Doublons transactions' },
-  { href: '/admin/repartition-communication', label: 'Répartition communication' },
+const adminLinks: NavLink[] = [
+  { href: '/admin/reimbursements', label: 'Gestion remboursements', permission: 'admin_reimbursements' },
+  { href: '/receipts/missing', label: 'PJ manquantes', permission: 'missing_receipts' },
+  { href: '/admin/rescrits', label: 'Rescrits à fournir', permission: 'admin_tax_rulings' },
+  { href: '/admin/exports', label: 'Exports', permission: 'exports' },
+  { href: '/admin/membres', label: 'Membres', permission: 'admin_members' },
+  { href: '/settings/mapping', label: 'Mapping', permission: 'mapping' },
+  { href: '/admin/referentiel', label: 'Admin référentiel', permission: 'admin_referentiel' },
+  { href: '/admin/previsionnel', label: 'Admin prévisionnel', permission: 'admin_forecast' },
+  { href: '/admin/evolutions', label: 'Admin évolutions', permission: 'admin_evolutions' },
+  { href: '/admin/import', label: 'Import de masse', permission: 'mass_import' },
+  { href: '/admin/doublons', label: 'Doublons transactions', permission: 'transaction_duplicates' },
+  { href: '/admin/repartition-communication', label: 'Répartition communication', permission: 'communication_split' },
 ]
 
 function Section({
@@ -54,10 +61,12 @@ function Section({
   onNavigate,
 }: {
   title: string
-  links: { href: string; label: string }[]
+  links: NavLink[]
   pathname: string
   onNavigate: () => void
 }) {
+  if (links.length === 0) return null
+
   return (
     <div style={{ marginTop: 18 }}>
       <div
@@ -104,6 +113,7 @@ export function Header() {
   const pathname = usePathname()
   const router = useRouter()
   const [open, setOpen] = useState(false)
+  const { permissions, loading } = useUserPermissions()
 
   if (pathname === '/login') return null
 
@@ -118,6 +128,31 @@ export function Header() {
     router.push('/login')
     router.refresh()
   }
+
+  const filteredPrincipalLinks = useMemo(
+    () => principalLinks.filter((link) => permissions.includes(link.permission)),
+    [permissions]
+  )
+
+  const filteredFollowupLinks = useMemo(
+    () => followupLinks.filter((link) => permissions.includes(link.permission)),
+    [permissions]
+  )
+
+  const filteredReportLinks = useMemo(
+    () => reportLinks.filter((link) => permissions.includes(link.permission)),
+    [permissions]
+  )
+
+  const filteredBillingLinks = useMemo(
+    () => billingLinks.filter((link) => permissions.includes(link.permission)),
+    [permissions]
+  )
+
+  const filteredAdminLinks = useMemo(
+    () => adminLinks.filter((link) => permissions.includes(link.permission)),
+    [permissions]
+  )
 
   return (
     <>
@@ -238,11 +273,46 @@ export function Header() {
           </button>
         </div>
 
-        <Section title="Principal" links={principalLinks} pathname={pathname} onNavigate={() => setOpen(false)} />
-        <Section title="Suivi" links={followupLinks} pathname={pathname} onNavigate={() => setOpen(false)} />
-        <Section title="Rapports" links={reportLinks} pathname={pathname} onNavigate={() => setOpen(false)} />
-        <Section title="Facturation" links={billingLinks} pathname={pathname} onNavigate={() => setOpen(false)} />
-        <Section title="Admin" links={adminLinks} pathname={pathname} onNavigate={() => setOpen(false)} />
+        {loading ? (
+          <div style={{ opacity: 0.7 }}>Chargement des accès…</div>
+        ) : (
+          <>
+            <Section
+              title="Principal"
+              links={filteredPrincipalLinks}
+              pathname={pathname}
+              onNavigate={() => setOpen(false)}
+            />
+
+            <Section
+              title="Suivi"
+              links={filteredFollowupLinks}
+              pathname={pathname}
+              onNavigate={() => setOpen(false)}
+            />
+
+            <Section
+              title="Rapports"
+              links={filteredReportLinks}
+              pathname={pathname}
+              onNavigate={() => setOpen(false)}
+            />
+
+            <Section
+              title="Facturation"
+              links={filteredBillingLinks}
+              pathname={pathname}
+              onNavigate={() => setOpen(false)}
+            />
+
+            <Section
+              title="Admin"
+              links={filteredAdminLinks}
+              pathname={pathname}
+              onNavigate={() => setOpen(false)}
+            />
+          </>
+        )}
 
         <div style={{ marginTop: 18, paddingTop: 18, borderTop: '1px solid #eee' }}>
           <button
