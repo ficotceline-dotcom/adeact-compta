@@ -32,10 +32,11 @@ type ForecastRow = {
 }
 
 type AllocationRow = {
+  id?: string
   budget_id: string | null
   category_id: string | null
   subcategory_id: string | null
-  amount_cents?: number | null
+  amount_cents: number | null
   transaction_id: string | null
 }
 
@@ -45,7 +46,7 @@ type TransactionRow = {
   amount_cents: number | null
 }
 
-type Line = {
+type DisplayLine = {
   categoryId: string
   categoryName: string
   categoryKind: 'income' | 'expense'
@@ -58,7 +59,7 @@ type Line = {
 type CategoryBlock = {
   categoryId: string
   categoryName: string
-  lines: Line[]
+  lines: DisplayLine[]
 }
 
 function euros(cents: number) {
@@ -83,12 +84,14 @@ function diffColor(kind: 'income' | 'expense', diff: number) {
 export default function PrevisionnelVsRealisePage() {
   const [loading, setLoading] = useState(true)
   const [errorDetails, setErrorDetails] = useState('')
+
   const [budgets, setBudgets] = useState<Budget[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [subcategories, setSubcategories] = useState<Subcategory[]>([])
   const [forecasts, setForecasts] = useState<ForecastRow[]>([])
   const [allocations, setAllocations] = useState<AllocationRow[]>([])
   const [transactions, setTransactions] = useState<TransactionRow[]>([])
+
   const [selectedBudgetId, setSelectedBudgetId] = useState('')
 
   useEffect(() => {
@@ -128,7 +131,7 @@ export default function PrevisionnelVsRealisePage() {
 
       supabase
         .from('transaction_allocations')
-        .select('budget_id,category_id,subcategory_id,transaction_id,amount_cents'),
+        .select('id,budget_id,category_id,subcategory_id,amount_cents,transaction_id'),
 
       supabase
         .from('transactions')
@@ -173,6 +176,14 @@ export default function PrevisionnelVsRealisePage() {
     setLoading(false)
   }
 
+  const txMap = useMemo(() => {
+    const map = new Map<string, TransactionRow>()
+    for (const tx of transactions) {
+      map.set(tx.id, tx)
+    }
+    return map
+  }, [transactions])
+
   const budgetCategories = useMemo(() => {
     return categories
       .filter(
@@ -183,36 +194,12 @@ export default function PrevisionnelVsRealisePage() {
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [categories, selectedBudgetId])
 
-  const categoryMap = useMemo(() => {
-    const map = new Map<string, Category>()
-    for (const c of categories) {
-      map.set(c.id, c)
-    }
-    return map
-  }, [categories])
-
-  const subcategoryMap = useMemo(() => {
-    const map = new Map<string, Subcategory>()
-    for (const s of subcategories) {
-      map.set(s.id, s)
-    }
-    return map
-  }, [subcategories])
-
-  const txMap = useMemo(() => {
-    const map = new Map<string, TransactionRow>()
-    for (const tx of transactions) {
-      map.set(tx.id, tx)
-    }
-    return map
-  }, [transactions])
-
   const visibleSubcategories = useMemo(() => {
-    const ids = new Set(budgetCategories.map((c) => c.id))
+    const visibleCategoryIds = new Set(budgetCategories.map((c) => c.id))
     return subcategories
-      .filter((s) => ids.has(s.category_id))
+      .filter((s) => visibleCategoryIds.has(s.category_id))
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [budgetCategories, subcategories])
+  }, [subcategories, budgetCategories])
 
   const forecastMap = useMemo(() => {
     const map = new Map<string, number>()
@@ -234,26 +221,23 @@ export default function PrevisionnelVsRealisePage() {
 
     for (const row of allocations) {
       if (row.budget_id !== selectedBudgetId) continue
-      if (!row.category_id) continue
       if (!row.transaction_id) continue
 
       const tx = txMap.get(row.transaction_id)
       if (!tx) continue
       if (tx.kind !== 'income' && tx.kind !== 'expense') continue
 
-const categoryKind = tx.kind as 'income' | 'expense'
+      const key = `${tx.kind}__${row.category_id ?? 'none'}__${row.subcategory_id ?? 'none'}`
+      const amount = row.amount_cents ?? tx.amount_cents ?? 0
 
-      const key = `${categoryKind}__${row.category_id}__${row.subcategory_id ?? 'none'}`
-
-      const amount = row.amount_cents != null ? row.amount_cents : tx.amount_cents ?? 0
       map.set(key, (map.get(key) ?? 0) + amount)
     }
 
     return map
-  }, [allocations, txMap, categoryMap, selectedBudgetId])
+  }, [allocations, txMap, selectedBudgetId])
 
-  const lines = useMemo<Line[]>(() => {
-    const result: Line[] = []
+  const lines = useMemo<DisplayLine[]>(() => {
+    const result: DisplayLine[] = []
 
     for (const category of budgetCategories) {
       const subs = visibleSubcategories.filter((s) => s.category_id === category.id)
