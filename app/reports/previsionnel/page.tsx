@@ -241,12 +241,7 @@ export default function PrevisionnelVsRealisePage() {
       if (!tx) continue
       if (tx.kind !== 'income' && tx.kind !== 'expense') continue
 
-      const category = categoryMap.get(row.category_id)
-
-      const categoryKind: 'income' | 'expense' =
-        category?.kind === 'income' || category?.kind === 'expense'
-          ? category.kind
-          : tx.kind
+const categoryKind = tx.kind as 'income' | 'expense'
 
       const key = `${categoryKind}__${row.category_id}__${row.subcategory_id ?? 'none'}`
 
