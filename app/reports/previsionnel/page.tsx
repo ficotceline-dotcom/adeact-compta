@@ -70,13 +70,13 @@ function euros(cents: number) {
 
 function diffColor(kind: 'income' | 'expense', diff: number) {
   if (kind === 'expense') {
-    if (diff > 0) return '#b42318' // réalisé > prévisionnel => mauvais
-    if (diff < 0) return '#027a48' // réalisé < prévisionnel => bon
+    if (diff > 0) return '#b42318'
+    if (diff < 0) return '#027a48'
     return '#667085'
   }
 
-  if (diff > 0) return '#027a48' // recettes réalisées > prévisionnel => bon
-  if (diff < 0) return '#b42318' // recettes réalisées < prévisionnel => mauvais
+  if (diff > 0) return '#027a48'
+  if (diff < 0) return '#b42318'
   return '#667085'
 }
 
@@ -173,7 +173,7 @@ export default function PrevisionnelVsRealisePage() {
     setLoading(false)
   }
 
-  const visibleCategories = useMemo(() => {
+  const budgetCategories = useMemo(() => {
     return categories
       .filter(
         (c) =>
@@ -183,15 +183,21 @@ export default function PrevisionnelVsRealisePage() {
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [categories, selectedBudgetId])
 
-  const visibleCategoryIds = useMemo(() => {
-    return new Set(visibleCategories.map((c) => c.id))
-  }, [visibleCategories])
+  const categoryMap = useMemo(() => {
+    const map = new Map<string, Category>()
+    for (const c of categories) {
+      map.set(c.id, c)
+    }
+    return map
+  }, [categories])
 
-  const visibleSubcategories = useMemo(() => {
-    return subcategories
-      .filter((s) => visibleCategoryIds.has(s.category_id))
-      .sort((a, b) => a.name.localeCompare(b.name))
-  }, [subcategories, visibleCategoryIds])
+  const subcategoryMap = useMemo(() => {
+    const map = new Map<string, Subcategory>()
+    for (const s of subcategories) {
+      map.set(s.id, s)
+    }
+    return map
+  }, [subcategories])
 
   const txMap = useMemo(() => {
     const map = new Map<string, TransactionRow>()
@@ -200,6 +206,13 @@ export default function PrevisionnelVsRealisePage() {
     }
     return map
   }, [transactions])
+
+  const visibleSubcategories = useMemo(() => {
+    const ids = new Set(budgetCategories.map((c) => c.id))
+    return subcategories
+      .filter((s) => ids.has(s.category_id))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [budgetCategories, subcategories])
 
   const forecastMap = useMemo(() => {
     const map = new Map<string, number>()
@@ -222,36 +235,38 @@ export default function PrevisionnelVsRealisePage() {
     for (const row of allocations) {
       if (row.budget_id !== selectedBudgetId) continue
       if (!row.category_id) continue
-      if (!visibleCategoryIds.has(row.category_id)) continue
       if (!row.transaction_id) continue
 
       const tx = txMap.get(row.transaction_id)
       if (!tx) continue
       if (tx.kind !== 'income' && tx.kind !== 'expense') continue
 
-      const key = `${tx.kind}__${row.category_id}__${row.subcategory_id ?? 'none'}`
+      const category = categoryMap.get(row.category_id)
 
-      const amount =
-        row.amount_cents != null
-          ? row.amount_cents
-          : tx.amount_cents ?? 0
+      const categoryKind: 'income' | 'expense' =
+        category?.kind === 'income' || category?.kind === 'expense'
+          ? category.kind
+          : tx.kind
 
+      const key = `${categoryKind}__${row.category_id}__${row.subcategory_id ?? 'none'}`
+
+      const amount = row.amount_cents != null ? row.amount_cents : tx.amount_cents ?? 0
       map.set(key, (map.get(key) ?? 0) + amount)
     }
 
     return map
-  }, [allocations, txMap, selectedBudgetId, visibleCategoryIds])
+  }, [allocations, txMap, categoryMap, selectedBudgetId])
 
-  const allLines = useMemo<Line[]>(() => {
-    const lines: Line[] = []
+  const lines = useMemo<Line[]>(() => {
+    const result: Line[] = []
 
-    for (const category of visibleCategories) {
+    for (const category of budgetCategories) {
       const subs = visibleSubcategories.filter((s) => s.category_id === category.id)
 
       if (subs.length === 0) {
         const key = `${category.kind}__${category.id}__none`
 
-        lines.push({
+        result.push({
           categoryId: category.id,
           categoryName: category.name,
           categoryKind: category.kind as 'income' | 'expense',
@@ -264,7 +279,7 @@ export default function PrevisionnelVsRealisePage() {
         for (const sub of subs) {
           const key = `${category.kind}__${category.id}__${sub.id}`
 
-          lines.push({
+          result.push({
             categoryId: category.id,
             categoryName: category.name,
             categoryKind: category.kind as 'income' | 'expense',
@@ -277,32 +292,32 @@ export default function PrevisionnelVsRealisePage() {
       }
     }
 
-    return lines
-  }, [visibleCategories, visibleSubcategories, forecastMap, actualMap])
+    return result
+  }, [budgetCategories, visibleSubcategories, forecastMap, actualMap])
 
   const incomeBlocks = useMemo<CategoryBlock[]>(() => {
-    return visibleCategories
+    return budgetCategories
       .filter((c) => c.kind === 'income')
       .map((category) => ({
         categoryId: category.id,
         categoryName: category.name,
-        lines: allLines.filter(
+        lines: lines.filter(
           (line) => line.categoryId === category.id && line.categoryKind === 'income'
         ),
       }))
-  }, [visibleCategories, allLines])
+  }, [budgetCategories, lines])
 
   const expenseBlocks = useMemo<CategoryBlock[]>(() => {
-    return visibleCategories
+    return budgetCategories
       .filter((c) => c.kind === 'expense')
       .map((category) => ({
         categoryId: category.id,
         categoryName: category.name,
-        lines: allLines.filter(
+        lines: lines.filter(
           (line) => line.categoryId === category.id && line.categoryKind === 'expense'
         ),
       }))
-  }, [visibleCategories, allLines])
+  }, [budgetCategories, lines])
 
   const totalIncomeForecast = incomeBlocks
     .flatMap((b) => b.lines)
