@@ -376,44 +376,32 @@ export default function TransactionsPage() {
       const linkedCategoryNames = details?.categoryNames ?? []
       const linkedSubcategoryNames = details?.subcategoryNames ?? []
 
-      if (selectedBudgetId && !linkedBudgetIds.includes(selectedBudgetId)) {
-        return false
-      }
-
-      if (selectedYearId && tx.fiscal_year_id !== selectedYearId) {
-        return false
-      }
-
-      if (selectedKind !== 'all' && tx.kind !== selectedKind) {
-        return false
-      }
+      if (selectedBudgetId && !linkedBudgetIds.includes(selectedBudgetId)) return false
+      if (selectedYearId && tx.fiscal_year_id !== selectedYearId) return false
+      if (selectedKind !== 'all' && tx.kind !== selectedKind) return false
 
       if (selectedReceiptFilter === 'missing') {
+        if (tx.kind !== 'expense') return false
         if (tx.receipt_status !== 'PJ manquante' || tx.receipt_abandoned) return false
       }
 
-      if (selectedReceiptFilter === 'provided' && tx.receipt_status !== 'PJ fournie') {
-        return false
+      if (selectedReceiptFilter === 'provided') {
+        if (tx.kind !== 'expense') return false
+        if (tx.receipt_status !== 'PJ fournie') return false
       }
 
-      if (selectedReceiptFilter === 'abandoned' && !tx.receipt_abandoned) {
-        return false
+      if (selectedReceiptFilter === 'abandoned') {
+        if (tx.kind !== 'expense') return false
+        if (!tx.receipt_abandoned) return false
       }
 
-      if (selectedCategoryName && !linkedCategoryNames.includes(selectedCategoryName)) {
-        return false
-      }
-
-      if (selectedSubcategoryName && !linkedSubcategoryNames.includes(selectedSubcategoryName)) {
-        return false
-      }
+      if (selectedCategoryName && !linkedCategoryNames.includes(selectedCategoryName)) return false
+      if (selectedSubcategoryName && !linkedSubcategoryNames.includes(selectedSubcategoryName)) return false
 
       if (searchText.trim()) {
         const needle = searchText.trim().toLowerCase()
         const haystack = (tx.description ?? '').toLowerCase()
-        if (!haystack.includes(needle)) {
-          return false
-        }
+        if (!haystack.includes(needle)) return false
       }
 
       return true
@@ -435,24 +423,27 @@ export default function TransactionsPage() {
   }
 
   return (
-    <main style={{ padding: 24, fontFamily: 'system-ui', maxWidth: 1200 }}>
-      <h1 style={{ fontSize: 24, fontWeight: 700 }}>Transactions</h1>
+    <main style={{ padding: 24, fontFamily: 'system-ui', maxWidth: 1320 }}>
+      <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 16 }}>Transactions</h1>
 
       <div
         style={{
-          marginTop: 16,
           marginBottom: 20,
           display: 'grid',
           gap: 10,
           gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          padding: 16,
+          border: '1px solid #e5e7eb',
+          borderRadius: 14,
+          background: '#fafafa',
         }}
       >
         <div>
-          <label style={{ display: 'block', marginBottom: 6 }}>Budget</label>
+          <label style={labelStyle}>Budget</label>
           <select
             value={selectedBudgetId}
             onChange={(e) => setSelectedBudgetId(e.target.value)}
-            style={{ padding: 8, width: '100%' }}
+            style={inputStyle}
           >
             <option value="">Tous les budgets</option>
             {budgets.map((b) => (
@@ -464,11 +455,11 @@ export default function TransactionsPage() {
         </div>
 
         <div>
-          <label style={{ display: 'block', marginBottom: 6 }}>Année</label>
+          <label style={labelStyle}>Année</label>
           <select
             value={selectedYearId}
             onChange={(e) => setSelectedYearId(e.target.value)}
-            style={{ padding: 8, width: '100%' }}
+            style={inputStyle}
           >
             <option value="">Toutes les années</option>
             {years.map((y) => (
@@ -480,11 +471,11 @@ export default function TransactionsPage() {
         </div>
 
         <div>
-          <label style={{ display: 'block', marginBottom: 6 }}>Type</label>
+          <label style={labelStyle}>Type</label>
           <select
             value={selectedKind}
             onChange={(e) => setSelectedKind(e.target.value)}
-            style={{ padding: 8, width: '100%' }}
+            style={inputStyle}
           >
             <option value="all">Tous</option>
             <option value="income">Recettes</option>
@@ -493,11 +484,11 @@ export default function TransactionsPage() {
         </div>
 
         <div>
-          <label style={{ display: 'block', marginBottom: 6 }}>Pièce jointe</label>
+          <label style={labelStyle}>Pièce jointe</label>
           <select
             value={selectedReceiptFilter}
             onChange={(e) => setSelectedReceiptFilter(e.target.value)}
-            style={{ padding: 8, width: '100%' }}
+            style={inputStyle}
           >
             <option value="all">Toutes</option>
             <option value="missing">PJ manquantes</option>
@@ -507,14 +498,14 @@ export default function TransactionsPage() {
         </div>
 
         <div>
-          <label style={{ display: 'block', marginBottom: 6 }}>Catégorie</label>
+          <label style={labelStyle}>Catégorie</label>
           <select
             value={selectedCategoryName}
             onChange={(e) => {
               setSelectedCategoryName(e.target.value)
               setSelectedSubcategoryName('')
             }}
-            style={{ padding: 8, width: '100%' }}
+            style={inputStyle}
           >
             <option value="">Toutes les catégories</option>
             {categoryOptions.map((name) => (
@@ -526,11 +517,11 @@ export default function TransactionsPage() {
         </div>
 
         <div>
-          <label style={{ display: 'block', marginBottom: 6 }}>Sous-catégorie</label>
+          <label style={labelStyle}>Sous-catégorie</label>
           <select
             value={selectedSubcategoryName}
             onChange={(e) => setSelectedSubcategoryName(e.target.value)}
-            style={{ padding: 8, width: '100%' }}
+            style={inputStyle}
           >
             <option value="">Toutes les sous-catégories</option>
             {subcategoryOptions.map((name) => (
@@ -542,12 +533,12 @@ export default function TransactionsPage() {
         </div>
 
         <div style={{ gridColumn: '1 / -1' }}>
-          <label style={{ display: 'block', marginBottom: 6 }}>Recherche description</label>
+          <label style={labelStyle}>Recherche description</label>
           <input
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             placeholder="Ex : décors, subvention, costume..."
-            style={{ padding: 8, width: '100%' }}
+            style={inputStyle}
           />
         </div>
       </div>
@@ -556,17 +547,20 @@ export default function TransactionsPage() {
         <table
           style={{
             width: '100%',
-            borderCollapse: 'collapse',
+            borderCollapse: 'separate',
+            borderSpacing: 0,
             background: 'white',
-            border: '1px solid #ddd',
+            border: '1px solid #e5e7eb',
+            borderRadius: 14,
+            overflow: 'hidden',
           }}
         >
           <thead>
-            <tr style={{ background: '#f7f7f7' }}>
+            <tr style={{ background: '#f8fafc' }}>
               <th style={thStyle}>Date</th>
               <th style={thStyle}>Type</th>
               <th style={thStyle}>Description</th>
-              <th style={thStyle}>Montant</th>
+              <th style={thRightStyle}>Montant</th>
               <th style={thStyle}>Affectation</th>
               <th style={thStyle}>PJ</th>
               <th style={thStyle}>Actions</th>
@@ -576,25 +570,29 @@ export default function TransactionsPage() {
             {filteredTransactions.map((tx) => {
               const details = txDetailsMap[tx.id]
               const linkedLines = details?.lines ?? []
-              const file = filesByTx[tx.id] ?? null
               const hasOpenRequest = openRequestIds.includes(tx.id)
+              const isExpense = tx.kind === 'expense'
+              const file = filesByTx[tx.id] ?? null
 
               return (
                 <tr key={tx.id}>
                   <td style={tdStyle}>{formatFrDate(tx.tx_date)}</td>
-                  <td style={tdStyle}>{tx.kind === 'income' ? 'Recette' : 'Dépense'}</td>
-                  <td style={tdStyle}>{tx.description || '—'}</td>
-                  <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
-                    {centsToEuros(tx.amount_cents)} €
+                  <td style={tdStyle}>
+                    <span style={tx.kind === 'income' ? incomeBadgeStyle : expenseBadgeStyle}>
+                      {tx.kind === 'income' ? 'Recette' : 'Dépense'}
+                    </span>
                   </td>
+                  <td style={tdStyle}>{tx.description || '—'}</td>
+                  <td style={tdRightStyle}>{centsToEuros(tx.amount_cents)} €</td>
+
                   <td style={tdStyle}>
                     {linkedLines.length === 0 ? (
                       <span style={{ opacity: 0.6 }}>—</span>
                     ) : (
-                      <div style={{ display: 'grid', gap: 4 }}>
+                      <div style={{ display: 'grid', gap: 6 }}>
                         {linkedLines.map((line, index) => (
-                          <div key={`${tx.id}-${index}`} style={{ fontSize: 13 }}>
-                            <b>{line.budgetName || 'Sans budget'}</b>
+                          <div key={`${tx.id}-${index}`} style={allocationLineStyle}>
+                            <strong>{line.budgetName || 'Sans budget'}</strong>
                             {line.categoryName ? ` • ${line.categoryName}` : ''}
                             {line.subcategoryName ? ` • ${line.subcategoryName}` : ''}
                           </div>
@@ -602,97 +600,105 @@ export default function TransactionsPage() {
                       </div>
                     )}
                   </td>
+
                   <td style={tdStyle}>
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      <div>
-                        {tx.receipt_abandoned
-                          ? 'PJ abandonnée'
-                          : tx.receipt_status || '—'}
+                    {isExpense ? (
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        <div>
+                          {tx.receipt_abandoned
+                            ? 'PJ abandonnée'
+                            : tx.receipt_status || '—'}
+                        </div>
+
+                        <input
+                          type="file"
+                          onChange={(e) => {
+                            const nextFile = e.target.files?.[0] ?? null
+                            setFilesByTx((prev) => ({ ...prev, [tx.id]: nextFile }))
+                          }}
+                        />
+
+                        <button
+                          onClick={async () => {
+                            const selectedFile = filesByTx[tx.id]
+                            if (!selectedFile) {
+                              alert('Choisis un fichier')
+                              return
+                            }
+
+                            setProcessingId(tx.id)
+                            try {
+                              await uploadReceipt(tx.id, selectedFile)
+                              setFilesByTx((prev) => ({ ...prev, [tx.id]: null }))
+                              alert('✅ PJ uploadée')
+                              await load()
+                            } catch (e: any) {
+                              console.error(e)
+                              alert(`Erreur upload PJ : ${e?.message ?? 'inconnue'}`)
+                            } finally {
+                              setProcessingId(null)
+                            }
+                          }}
+                          disabled={processingId === tx.id}
+                          style={secondaryButtonStyle}
+                        >
+                          {processingId === tx.id ? 'Upload…' : 'Uploader la PJ'}
+                        </button>
                       </div>
-
-                      <input
-                        type="file"
-                        onChange={(e) => {
-                          const nextFile = e.target.files?.[0] ?? null
-                          setFilesByTx((prev) => ({ ...prev, [tx.id]: nextFile }))
-                        }}
-                      />
-
-                      <button
-                        onClick={async () => {
-                          const selectedFile = filesByTx[tx.id]
-                          if (!selectedFile) {
-                            alert('Choisis un fichier')
-                            return
-                          }
-
-                          setProcessingId(tx.id)
-                          try {
-                            await uploadReceipt(tx.id, selectedFile)
-                            setFilesByTx((prev) => ({ ...prev, [tx.id]: null }))
-                            alert('✅ PJ uploadée')
-                            await load()
-                          } catch (e: any) {
-                            console.error(e)
-                            alert(`Erreur upload PJ : ${e?.message ?? 'inconnue'}`)
-                          } finally {
-                            setProcessingId(null)
-                          }
-                        }}
-                        disabled={processingId === tx.id}
-                        style={buttonSecondaryStyle}
-                      >
-                        {processingId === tx.id ? 'Upload…' : 'Uploader la PJ'}
-                      </button>
-                    </div>
+                    ) : (
+                      <span style={{ opacity: 0.5 }}>Non concerné</span>
+                    )}
                   </td>
+
                   <td style={tdStyle}>
-                    <div style={{ display: 'grid', gap: 8 }}>
-                      <textarea
-                        placeholder="Message pour la demande de PJ"
-                        value={messageByTx[tx.id] || ''}
-                        onChange={(e) =>
-                          setMessageByTx((prev) => ({
-                            ...prev,
-                            [tx.id]: e.target.value,
-                          }))
-                        }
-                        rows={3}
-                        style={{
-                          width: '100%',
-                          minWidth: 220,
-                          padding: 8,
-                          border: '1px solid #ddd',
-                          borderRadius: 8,
-                          fontFamily: 'inherit',
-                          fontSize: 13,
-                        }}
-                      />
+                    <div style={{ display: 'grid', gap: 10 }}>
+                      {isExpense ? (
+                        <div style={actionCardStyle}>
+                          <div style={actionTitleStyle}>Demande de PJ</div>
 
-                      <button
-                        onClick={() => requestReceipt(tx.id)}
-                        disabled={processingId === tx.id || hasOpenRequest}
-                        style={buttonStyle}
-                      >
-                        {hasOpenRequest
-                          ? 'Demande PJ déjà ouverte'
-                          : processingId === tx.id
-                          ? 'Envoi…'
-                          : 'Demander PJ'}
-                      </button>
+                          <textarea
+                            placeholder="Message pour la demande"
+                            value={messageByTx[tx.id] || ''}
+                            onChange={(e) =>
+                              setMessageByTx((prev) => ({
+                                ...prev,
+                                [tx.id]: e.target.value,
+                              }))
+                            }
+                            rows={3}
+                            style={textareaStyle}
+                          />
 
-                      <button
-                        onClick={() => abandonReceipt(tx.id)}
-                        disabled={processingId === tx.id}
-                        style={buttonSecondaryStyle}
-                      >
-                        Abandonner la PJ
-                      </button>
+                          <button
+                            onClick={() => requestReceipt(tx.id)}
+                            disabled={processingId === tx.id || hasOpenRequest}
+                            style={primaryButtonStyle}
+                          >
+                            {hasOpenRequest
+                              ? 'Demande déjà ouverte'
+                              : processingId === tx.id
+                              ? 'Envoi…'
+                              : 'Demander PJ'}
+                          </button>
+
+                          <button
+                            onClick={() => abandonReceipt(tx.id)}
+                            disabled={processingId === tx.id}
+                            style={secondaryButtonStyle}
+                          >
+                            Abandonner la PJ
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={disabledCardStyle}>
+                          Demande de PJ non disponible sur les recettes
+                        </div>
+                      )}
 
                       <a
                         href={`/transactions/${tx.id}/edit`}
                         style={{
-                          ...linkButtonStyle,
+                          ...secondaryLinkStyle,
                           textDecoration: 'none',
                           textAlign: 'center',
                         }}
@@ -703,7 +709,7 @@ export default function TransactionsPage() {
                       <button
                         onClick={() => deleteTransaction(tx.id)}
                         disabled={deletingId === tx.id}
-                        style={buttonDangerStyle}
+                        style={dangerButtonStyle}
                       >
                         {deletingId === tx.id ? 'Suppression…' : 'Supprimer'}
                       </button>
@@ -727,55 +733,144 @@ export default function TransactionsPage() {
   )
 }
 
+const labelStyle: React.CSSProperties = {
+  display: 'block',
+  marginBottom: 6,
+  fontSize: 13,
+  fontWeight: 700,
+}
+
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  padding: 10,
+  borderRadius: 10,
+  border: '1px solid #d1d5db',
+  background: 'white',
+}
+
 const thStyle: React.CSSProperties = {
   textAlign: 'left',
-  padding: 10,
-  borderBottom: '1px solid #ddd',
+  padding: 12,
+  borderBottom: '1px solid #e5e7eb',
   fontSize: 14,
 }
 
+const thRightStyle: React.CSSProperties = {
+  ...thStyle,
+  textAlign: 'right',
+}
+
 const tdStyle: React.CSSProperties = {
-  padding: 10,
-  borderBottom: '1px solid #eee',
+  padding: 12,
+  borderBottom: '1px solid #f1f5f9',
   verticalAlign: 'top',
   fontSize: 14,
 }
 
-const buttonStyle: React.CSSProperties = {
-  padding: '8px 10px',
+const tdRightStyle: React.CSSProperties = {
+  ...tdStyle,
+  textAlign: 'right',
+  whiteSpace: 'nowrap',
+}
+
+const incomeBadgeStyle: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '4px 8px',
+  borderRadius: 999,
+  background: '#ecfdf3',
+  color: '#027a48',
+  border: '1px solid #abefc6',
+  fontSize: 12,
+  fontWeight: 700,
+}
+
+const expenseBadgeStyle: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '4px 8px',
+  borderRadius: 999,
+  background: '#fff1f3',
+  color: '#c01048',
+  border: '1px solid #fbcfe8',
+  fontSize: 12,
+  fontWeight: 700,
+}
+
+const allocationLineStyle: React.CSSProperties = {
+  fontSize: 13,
+  padding: '6px 8px',
   borderRadius: 8,
+  background: '#f8fafc',
+}
+
+const actionCardStyle: React.CSSProperties = {
+  display: 'grid',
+  gap: 8,
+  padding: 10,
+  border: '1px solid #e5e7eb',
+  borderRadius: 12,
+  background: '#fafafa',
+}
+
+const disabledCardStyle: React.CSSProperties = {
+  padding: 10,
+  border: '1px dashed #d1d5db',
+  borderRadius: 12,
+  background: '#fafafa',
+  color: '#6b7280',
+  fontSize: 13,
+}
+
+const actionTitleStyle: React.CSSProperties = {
+  fontSize: 13,
+  fontWeight: 800,
+}
+
+const textareaStyle: React.CSSProperties = {
+  width: '100%',
+  minWidth: 220,
+  padding: 10,
+  border: '1px solid #d1d5db',
+  borderRadius: 10,
+  fontFamily: 'inherit',
+  fontSize: 13,
+  resize: 'vertical',
+}
+
+const primaryButtonStyle: React.CSSProperties = {
+  padding: '9px 10px',
+  borderRadius: 10,
   border: '1px solid #1d4ed8',
   background: '#1d4ed8',
   color: 'white',
   cursor: 'pointer',
-  fontWeight: 600,
+  fontWeight: 700,
 }
 
-const buttonSecondaryStyle: React.CSSProperties = {
-  padding: '8px 10px',
-  borderRadius: 8,
-  border: '1px solid #ddd',
+const secondaryButtonStyle: React.CSSProperties = {
+  padding: '9px 10px',
+  borderRadius: 10,
+  border: '1px solid #d1d5db',
   background: 'white',
   cursor: 'pointer',
-  fontWeight: 600,
+  fontWeight: 700,
 }
 
-const buttonDangerStyle: React.CSSProperties = {
-  padding: '8px 10px',
-  borderRadius: 8,
+const dangerButtonStyle: React.CSSProperties = {
+  padding: '9px 10px',
+  borderRadius: 10,
   border: '1px solid #dc2626',
   background: '#dc2626',
   color: 'white',
   cursor: 'pointer',
-  fontWeight: 600,
+  fontWeight: 700,
 }
 
-const linkButtonStyle: React.CSSProperties = {
-  padding: '8px 10px',
-  borderRadius: 8,
-  border: '1px solid #ddd',
-  background: '#f8f8f8',
+const secondaryLinkStyle: React.CSSProperties = {
+  padding: '9px 10px',
+  borderRadius: 10,
+  border: '1px solid #d1d5db',
+  background: '#f8fafc',
   color: 'inherit',
-  fontWeight: 600,
+  fontWeight: 700,
   display: 'inline-block',
 }
