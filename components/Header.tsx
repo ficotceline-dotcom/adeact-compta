@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '@/lib/supabase'
 import { useUserPermissions } from '@/lib/useUserPermissions'
 
 type NavLink = {
@@ -115,20 +115,6 @@ export function Header() {
   const [open, setOpen] = useState(false)
   const { permissions, loading } = useUserPermissions()
 
-  if (pathname === '/login') return null
-
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
-
-  async function handleLogout() {
-    await supabase.auth.signOut()
-    setOpen(false)
-    router.push('/login')
-    router.refresh()
-  }
-
   const filteredPrincipalLinks = useMemo(
     () => principalLinks.filter((link) => permissions.includes(link.permission)),
     [permissions]
@@ -153,6 +139,15 @@ export function Header() {
     () => adminLinks.filter((link) => permissions.includes(link.permission)),
     [permissions]
   )
+
+  async function handleLogout() {
+    await supabase.auth.signOut()
+    setOpen(false)
+    router.replace('/login')
+    router.refresh()
+  }
+
+  if (pathname === '/login') return null
 
   return (
     <>
@@ -283,28 +278,24 @@ export function Header() {
               pathname={pathname}
               onNavigate={() => setOpen(false)}
             />
-
             <Section
               title="Suivi"
               links={filteredFollowupLinks}
               pathname={pathname}
               onNavigate={() => setOpen(false)}
             />
-
             <Section
               title="Rapports"
               links={filteredReportLinks}
               pathname={pathname}
               onNavigate={() => setOpen(false)}
             />
-
             <Section
               title="Facturation"
               links={filteredBillingLinks}
               pathname={pathname}
               onNavigate={() => setOpen(false)}
             />
-
             <Section
               title="Admin"
               links={filteredAdminLinks}
