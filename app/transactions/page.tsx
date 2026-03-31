@@ -102,6 +102,7 @@ export default function TransactionsPage() {
   const [openRequestIds, setOpenRequestIds] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [filesByTx, setFilesByTx] = useState<Record<string, File | null>>({})
+  const [messageByTx, setMessageByTx] = useState<Record<string, string>>({})
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [processingId, setProcessingId] = useState<string | null>(null)
 
@@ -129,13 +130,13 @@ export default function TransactionsPage() {
     ] = await Promise.all([
       supabase
         .from('transactions')
-        .select('id,tx_date,kind,description,amount_cents,receipt_status,receipt_path,receipt_abandoned,fiscal_year_id')
+        .select(
+          'id,tx_date,kind,description,amount_cents,receipt_status,receipt_path,receipt_abandoned,fiscal_year_id'
+        )
         .order('tx_date', { ascending: false })
         .order('id', { ascending: false }),
 
-      supabase
-        .from('transaction_allocations')
-        .select(`
+      supabase.from('transaction_allocations').select(`
           transaction_id,
           budget_id,
           category_id,
@@ -199,10 +200,7 @@ export default function TransactionsPage() {
 
       if (allocErr) throw allocErr
 
-      const { error: txErr } = await supabase
-        .from('transactions')
-        .delete()
-        .eq('id', txId)
+      const { error: txErr } = await supabase.from('transactions').delete().eq('id', txId)
 
       if (txErr) throw txErr
 
@@ -222,19 +220,20 @@ export default function TransactionsPage() {
       return
     }
 
+    const message = (messageByTx[transactionId] ?? '').trim()
     setProcessingId(transactionId)
 
     try {
-      const { error } = await supabase
-        .from('receipt_requests')
-        .insert({
-          transaction_id: transactionId,
-          status: 'open',
-        })
+      const { error } = await supabase.from('receipt_requests').insert({
+        transaction_id: transactionId,
+        status: 'open',
+        message,
+      })
 
       if (error) throw error
 
       alert('✅ Demande PJ créée')
+      setMessageByTx((prev) => ({ ...prev, [transactionId]: '' }))
       await load()
     } catch (e: any) {
       console.error(e)
@@ -245,7 +244,9 @@ export default function TransactionsPage() {
   }
 
   async function abandonReceipt(transactionId: string) {
-    const ok = confirm("Confirmer l'abandon de PJ ? Cette transaction ne sera plus comptée dans les PJ manquantes.")
+    const ok = confirm(
+      "Confirmer l'abandon de PJ ? Cette transaction ne sera plus comptée dans les PJ manquantes."
+    )
     if (!ok) return
 
     setProcessingId(transactionId)
@@ -540,254 +541,241 @@ export default function TransactionsPage() {
           </select>
         </div>
 
-        <div>
-          <label style={{ display: 'block', marginBottom: 6 }}>Recherche</label>
+        <div style={{ gridColumn: '1 / -1' }}>
+          <label style={{ display: 'block', marginBottom: 6 }}>Recherche description</label>
           <input
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
-            placeholder="Libellé"
+            placeholder="Ex : décors, subvention, costume..."
             style={{ padding: 8, width: '100%' }}
           />
         </div>
       </div>
 
-      <div style={{ marginBottom: 14, opacity: 0.75 }}>
-        {filteredTransactions.length} transaction(s)
-      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table
+          style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            background: 'white',
+            border: '1px solid #ddd',
+          }}
+        >
+          <thead>
+            <tr style={{ background: '#f7f7f7' }}>
+              <th style={thStyle}>Date</th>
+              <th style={thStyle}>Type</th>
+              <th style={thStyle}>Description</th>
+              <th style={thStyle}>Montant</th>
+              <th style={thStyle}>Affectation</th>
+              <th style={thStyle}>PJ</th>
+              <th style={thStyle}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredTransactions.map((tx) => {
+              const details = txDetailsMap[tx.id]
+              const linkedLines = details?.lines ?? []
+              const file = filesByTx[tx.id] ?? null
+              const hasOpenRequest = openRequestIds.includes(tx.id)
 
-      <div style={{ marginTop: 16 }}>
-        {filteredTransactions.length === 0 && <p>Aucune transaction</p>}
-
-        {filteredTransactions.map((tx) => {
-          const details = txDetailsMap[tx.id]
-          const linkedBudgets = details?.budgetNames ?? []
-          const linkedLines = details?.lines ?? []
-          const hasOpenRequest = openRequestIds.includes(tx.id)
-          const showMissingReceiptAlert =
-            tx.receipt_status === 'PJ manquante' && !tx.receipt_abandoned
-
-          return (
-            <div
-              key={tx.id}
-              style={{
-                border: '1px solid #ddd',
-                borderRadius: 10,
-                padding: 12,
-                marginBottom: 10,
-                background: showMissingReceiptAlert ? '#fff5f5' : '#f9f9f9',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                }}
-              >
-                <div>
-                  <strong>{tx.description}</strong>
-
-                  <div style={{ fontSize: 14, marginTop: 4, opacity: 0.7 }}>
-                    {formatFrDate(tx.tx_date)} — {tx.kind === 'expense' ? 'Dépense' : 'Recette'}
-                  </div>
-
-                  {linkedBudgets.length > 0 && (
-                    <div style={{ fontSize: 14, marginTop: 6, opacity: 0.8 }}>
-                      Budget{linkedBudgets.length > 1 ? 's' : ''} : <b>{linkedBudgets.join(', ')}</b>
-                    </div>
-                  )}
-
-                  {linkedLines.length > 0 && (
-                    <div style={{ marginTop: 8, fontSize: 14 }}>
-                      <div style={{ opacity: 0.8, marginBottom: 4 }}>
-                        Affectation :
-                      </div>
-
+              return (
+                <tr key={tx.id}>
+                  <td style={tdStyle}>{formatFrDate(tx.tx_date)}</td>
+                  <td style={tdStyle}>{tx.kind === 'income' ? 'Recette' : 'Dépense'}</td>
+                  <td style={tdStyle}>{tx.description || '—'}</td>
+                  <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+                    {centsToEuros(tx.amount_cents)} €
+                  </td>
+                  <td style={tdStyle}>
+                    {linkedLines.length === 0 ? (
+                      <span style={{ opacity: 0.6 }}>—</span>
+                    ) : (
                       <div style={{ display: 'grid', gap: 4 }}>
                         {linkedLines.map((line, index) => (
-                          <div key={index} style={{ opacity: 0.9 }}>
-                            • <b>{line.categoryName || '—'}</b>
-                            {line.subcategoryName ? ` → ${line.subcategoryName}` : ''}
-                            {line.budgetName ? ` (${line.budgetName})` : ''}
+                          <div key={`${tx.id}-${index}`} style={{ fontSize: 13 }}>
+                            <b>{line.budgetName || 'Sans budget'}</b>
+                            {line.categoryName ? ` • ${line.categoryName}` : ''}
+                            {line.subcategoryName ? ` • ${line.subcategoryName}` : ''}
                           </div>
                         ))}
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </td>
+                  <td style={tdStyle}>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <div>
+                        {tx.receipt_abandoned
+                          ? 'PJ abandonnée'
+                          : tx.receipt_status || '—'}
+                      </div>
 
-                  {showMissingReceiptAlert && (
-                    <div style={{ color: 'crimson', marginTop: 6 }}>
-                      ⚠️ Justificatif manquant
-                    </div>
-                  )}
+                      <input
+                        type="file"
+                        onChange={(e) => {
+                          const nextFile = e.target.files?.[0] ?? null
+                          setFilesByTx((prev) => ({ ...prev, [tx.id]: nextFile }))
+                        }}
+                      />
 
-                  {tx.receipt_abandoned && (
-                    <div style={{ color: '#8a6d3b', marginTop: 6 }}>
-                      📁 PJ abandonnée
-                    </div>
-                  )}
+                      <button
+                        onClick={async () => {
+                          const selectedFile = filesByTx[tx.id]
+                          if (!selectedFile) {
+                            alert('Choisis un fichier')
+                            return
+                          }
 
-                  {tx.receipt_path && (
-                    <div style={{ color: 'green', marginTop: 6, fontWeight: 600 }}>
-                      ✅ PJ ajoutée
+                          setProcessingId(tx.id)
+                          try {
+                            await uploadReceipt(tx.id, selectedFile)
+                            setFilesByTx((prev) => ({ ...prev, [tx.id]: null }))
+                            alert('✅ PJ uploadée')
+                            await load()
+                          } catch (e: any) {
+                            console.error(e)
+                            alert(`Erreur upload PJ : ${e?.message ?? 'inconnue'}`)
+                          } finally {
+                            setProcessingId(null)
+                          }
+                        }}
+                        disabled={processingId === tx.id}
+                        style={buttonSecondaryStyle}
+                      >
+                        {processingId === tx.id ? 'Upload…' : 'Uploader la PJ'}
+                      </button>
                     </div>
-                  )}
+                  </td>
+                  <td style={tdStyle}>
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      <textarea
+                        placeholder="Message pour la demande de PJ"
+                        value={messageByTx[tx.id] || ''}
+                        onChange={(e) =>
+                          setMessageByTx((prev) => ({
+                            ...prev,
+                            [tx.id]: e.target.value,
+                          }))
+                        }
+                        rows={3}
+                        style={{
+                          width: '100%',
+                          minWidth: 220,
+                          padding: 8,
+                          border: '1px solid #ddd',
+                          borderRadius: 8,
+                          fontFamily: 'inherit',
+                          fontSize: 13,
+                        }}
+                      />
 
-                  {showMissingReceiptAlert && (
-                    <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       <button
                         onClick={() => requestReceipt(tx.id)}
-                        disabled={hasOpenRequest || processingId === tx.id}
-                        style={{ padding: '8px 10px' }}
+                        disabled={processingId === tx.id || hasOpenRequest}
+                        style={buttonStyle}
                       >
                         {hasOpenRequest
-                          ? 'Demande déjà envoyée'
+                          ? 'Demande PJ déjà ouverte'
                           : processingId === tx.id
-                          ? 'Traitement…'
+                          ? 'Envoi…'
                           : 'Demander PJ'}
                       </button>
 
                       <button
                         onClick={() => abandonReceipt(tx.id)}
                         disabled={processingId === tx.id}
+                        style={buttonSecondaryStyle}
+                      >
+                        Abandonner la PJ
+                      </button>
+
+                      <a
+                        href={`/transactions/${tx.id}/edit`}
                         style={{
-                          padding: '8px 10px',
-                          border: '1px solid #ddd',
-                          borderRadius: 8,
-                          background: '#fffaf0',
+                          ...linkButtonStyle,
+                          textDecoration: 'none',
+                          textAlign: 'center',
                         }}
                       >
-                        Abandon de PJ
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ textAlign: 'right', minWidth: 260 }}>
-                  <div style={{ fontWeight: 700 }}>
-                    {tx.kind === 'expense' ? '-' : '+'}
-                    {centsToEuros(tx.amount_cents)} €
-                  </div>
-
-                  <button
-                    onClick={async () => {
-                      const nextStatus =
-                        tx.receipt_status === 'PJ manquante'
-                          ? 'PJ fournie'
-                          : 'PJ manquante'
-
-                      const patch =
-                        nextStatus === 'PJ manquante'
-                          ? { receipt_status: nextStatus }
-                          : { receipt_status: nextStatus, receipt_abandoned: false }
-
-                      const { error } = await supabase
-                        .from('transactions')
-                        .update(patch)
-                        .eq('id', tx.id)
-
-                      if (error) {
-                        console.error(error)
-                        alert('Erreur mise à jour PJ')
-                        return
-                      }
-
-                      await load()
-                    }}
-                    style={{ marginTop: 10, padding: '8px 10px', width: '100%' }}
-                  >
-                    {tx.receipt_status === 'PJ manquante'
-                      ? 'Marquer PJ fournie'
-                      : 'Marquer PJ manquante'}
-                  </button>
-
-                  {!tx.receipt_path ? (
-                    <div style={{ marginTop: 10 }}>
-                      <input
-                        type="file"
-                        accept=".pdf,.png,.jpg,.jpeg"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0] ?? null
-                          setFilesByTx((prev) => ({ ...prev, [tx.id]: file }))
-                        }}
-                      />
+                        Modifier
+                      </a>
 
                       <button
-                        onClick={async () => {
-                          const file = filesByTx[tx.id]
-                          if (!file) {
-                            alert('Choisis un fichier avant.')
-                            return
-                          }
-                          try {
-                            await uploadReceipt(tx.id, file)
-                            alert('✅ PJ uploadée')
-                            setFilesByTx((prev) => ({ ...prev, [tx.id]: null }))
-                            await load()
-                          } catch (e: any) {
-                            console.error(e)
-                            alert(`Erreur upload: ${e?.message ?? 'inconnue'}`)
-                          }
-                        }}
-                        style={{ marginTop: 8, padding: '8px 10px', width: '100%' }}
+                        onClick={() => deleteTransaction(tx.id)}
+                        disabled={deletingId === tx.id}
+                        style={buttonDangerStyle}
                       >
-                        Uploader PJ
+                        {deletingId === tx.id ? 'Suppression…' : 'Supprimer'}
                       </button>
                     </div>
-                  ) : (
-                    <div
-                      style={{
-                        marginTop: 10,
-                        padding: '10px 12px',
-                        width: '100%',
-                        border: '1px solid #ddd',
-                        borderRadius: 8,
-                        background: '#f3fff3',
-                        fontWeight: 600,
-                      }}
-                    >
-                      PJ ajoutée
-                    </div>
-                  )}
+                  </td>
+                </tr>
+              )
+            })}
 
-                  <a
-                    href={`/transactions/${tx.id}/edit`}
-                    style={{
-                      display: 'inline-block',
-                      marginTop: 8,
-                      padding: '8px 10px',
-                      border: '1px solid #ddd',
-                      borderRadius: 10,
-                      textDecoration: 'none',
-                      color: 'inherit',
-                      width: '100%',
-                      textAlign: 'center',
-                    }}
-                  >
-                    Modifier
-                  </a>
-
-                  <button
-                    onClick={() => deleteTransaction(tx.id)}
-                    disabled={deletingId === tx.id}
-                    style={{
-                      marginTop: 8,
-                      padding: '8px 10px',
-                      width: '100%',
-                      border: '1px solid #d9b3b3',
-                      borderRadius: 10,
-                      background: deletingId === tx.id ? '#f3f3f3' : '#fff7f7',
-                      cursor: deletingId === tx.id ? 'default' : 'pointer',
-                    }}
-                  >
-                    {deletingId === tx.id ? 'Suppression…' : 'Supprimer'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )
-        })}
+            {filteredTransactions.length === 0 && (
+              <tr>
+                <td colSpan={7} style={{ ...tdStyle, textAlign: 'center', opacity: 0.7 }}>
+                  Aucune transaction trouvée.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </main>
   )
+}
+
+const thStyle: React.CSSProperties = {
+  textAlign: 'left',
+  padding: 10,
+  borderBottom: '1px solid #ddd',
+  fontSize: 14,
+}
+
+const tdStyle: React.CSSProperties = {
+  padding: 10,
+  borderBottom: '1px solid #eee',
+  verticalAlign: 'top',
+  fontSize: 14,
+}
+
+const buttonStyle: React.CSSProperties = {
+  padding: '8px 10px',
+  borderRadius: 8,
+  border: '1px solid #1d4ed8',
+  background: '#1d4ed8',
+  color: 'white',
+  cursor: 'pointer',
+  fontWeight: 600,
+}
+
+const buttonSecondaryStyle: React.CSSProperties = {
+  padding: '8px 10px',
+  borderRadius: 8,
+  border: '1px solid #ddd',
+  background: 'white',
+  cursor: 'pointer',
+  fontWeight: 600,
+}
+
+const buttonDangerStyle: React.CSSProperties = {
+  padding: '8px 10px',
+  borderRadius: 8,
+  border: '1px solid #dc2626',
+  background: '#dc2626',
+  color: 'white',
+  cursor: 'pointer',
+  fontWeight: 600,
+}
+
+const linkButtonStyle: React.CSSProperties = {
+  padding: '8px 10px',
+  borderRadius: 8,
+  border: '1px solid #ddd',
+  background: '#f8f8f8',
+  color: 'inherit',
+  fontWeight: 600,
+  display: 'inline-block',
 }
