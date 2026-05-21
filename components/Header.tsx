@@ -9,7 +9,7 @@ import { useUserPermissions } from '@/lib/useUserPermissions'
 type NavLink = {
   href: string
   label: string
-  permission: string
+  permission?: string
 }
 
 const principalLinks: NavLink[] = [
@@ -47,13 +47,24 @@ const adminLinks: NavLink[] = [
   { href: '/admin/membres', label: 'Membres', permission: 'admin_members' },
   { href: '/settings/mapping', label: 'Mapping', permission: 'mapping' },
   { href: '/admin/referentiel', label: 'Admin référentiel', permission: 'admin_referentiel' },
+
+  {
+    href: '/admin/controle-integrite',
+    label: 'Contrôle intégrité',
+  },
+
   { href: '/admin/previsionnel', label: 'Admin prévisionnel', permission: 'admin_forecast' },
   { href: '/admin/evolutions', label: 'Admin évolutions', permission: 'admin_evolutions' },
   { href: '/admin/import', label: 'Import de masse', permission: 'mass_import' },
   { href: '/admin/doublons', label: 'Doublons transactions', permission: 'transaction_duplicates' },
   { href: '/admin/repartition-communication', label: 'Répartition communication', permission: 'communication_split' },
-  { href: '/admin/controle-integrite', label: 'Contrôle intégrité', permission: 'admin_referentiel' },
 ]
+
+function filterLinks(links: NavLink[], permissions: string[]) {
+  return links.filter(
+    (link) => !link.permission || permissions.includes(link.permission)
+  )
+}
 
 function Section({
   title,
@@ -96,9 +107,10 @@ function Section({
                 padding: '10px 12px',
                 borderRadius: 10,
                 border: '1px solid #ddd',
-                background: active ? '#f3f3f3' : 'white',
+                background: active ? '#f3f4f6' : 'white',
                 color: 'inherit',
-                fontWeight: active ? 700 : 500,
+                fontWeight: active ? 800 : 500,
+                transition: '0.15s',
               }}
             >
               {l.label}
@@ -113,31 +125,33 @@ function Section({
 export function Header() {
   const pathname = usePathname()
   const router = useRouter()
+
   const [open, setOpen] = useState(false)
+
   const { permissions, loading } = useUserPermissions()
 
   const filteredPrincipalLinks = useMemo(
-    () => principalLinks.filter((link) => permissions.includes(link.permission)),
+    () => filterLinks(principalLinks, permissions),
     [permissions]
   )
 
   const filteredFollowupLinks = useMemo(
-    () => followupLinks.filter((link) => permissions.includes(link.permission)),
+    () => filterLinks(followupLinks, permissions),
     [permissions]
   )
 
   const filteredReportLinks = useMemo(
-    () => reportLinks.filter((link) => permissions.includes(link.permission)),
+    () => filterLinks(reportLinks, permissions),
     [permissions]
   )
 
   const filteredBillingLinks = useMemo(
-    () => billingLinks.filter((link) => permissions.includes(link.permission)),
+    () => filterLinks(billingLinks, permissions),
     [permissions]
   )
 
   const filteredAdminLinks = useMemo(
-    () => adminLinks.filter((link) => permissions.includes(link.permission)),
+    () => filterLinks(adminLinks, permissions),
     [permissions]
   )
 
@@ -152,6 +166,18 @@ export function Header() {
 
   return (
     <>
+      {open && (
+        <div
+          onClick={() => setOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.3)',
+            zIndex: 45,
+          }}
+        />
+      )}
+
       <header
         style={{
           borderBottom: '1px solid #eee',
@@ -170,7 +196,6 @@ export function Header() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <button
             onClick={() => router.back()}
-            aria-label="Retour"
             style={{
               border: '1px solid #ddd',
               borderRadius: 10,
@@ -184,7 +209,6 @@ export function Header() {
 
           <button
             onClick={() => setOpen(true)}
-            aria-label="Ouvrir le menu"
             style={{
               border: '1px solid #ddd',
               borderRadius: 10,
@@ -198,7 +222,9 @@ export function Header() {
             ☰
           </button>
 
-          <span style={{ fontWeight: 800 }}>ADEACT • Trésorerie</span>
+          <span style={{ fontWeight: 900 }}>
+            ADEACT • Trésorerie
+          </span>
         </div>
 
         <button
@@ -214,18 +240,6 @@ export function Header() {
           Se déconnecter
         </button>
       </header>
-
-      {open && (
-        <div
-          onClick={() => setOpen(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.35)',
-            zIndex: 49,
-          }}
-        />
-      )}
 
       <aside
         style={{
@@ -253,7 +267,9 @@ export function Header() {
             marginBottom: 18,
           }}
         >
-          <div style={{ fontWeight: 900, fontSize: 18 }}>Menu</div>
+          <div style={{ fontWeight: 900, fontSize: 18 }}>
+            Menu
+          </div>
 
           <button
             onClick={() => setOpen(false)}
@@ -270,7 +286,9 @@ export function Header() {
         </div>
 
         {loading ? (
-          <div style={{ opacity: 0.7 }}>Chargement des accès…</div>
+          <div style={{ opacity: 0.7 }}>
+            Chargement des accès…
+          </div>
         ) : (
           <>
             <Section
@@ -279,24 +297,28 @@ export function Header() {
               pathname={pathname}
               onNavigate={() => setOpen(false)}
             />
+
             <Section
               title="Suivi"
               links={filteredFollowupLinks}
               pathname={pathname}
               onNavigate={() => setOpen(false)}
             />
+
             <Section
               title="Rapports"
               links={filteredReportLinks}
               pathname={pathname}
               onNavigate={() => setOpen(false)}
             />
+
             <Section
               title="Facturation"
               links={filteredBillingLinks}
               pathname={pathname}
               onNavigate={() => setOpen(false)}
             />
+
             <Section
               title="Admin"
               links={filteredAdminLinks}
@@ -306,7 +328,13 @@ export function Header() {
           </>
         )}
 
-        <div style={{ marginTop: 18, paddingTop: 18, borderTop: '1px solid #eee' }}>
+        <div
+          style={{
+            marginTop: 18,
+            paddingTop: 18,
+            borderTop: '1px solid #eee',
+          }}
+        >
           <button
             onClick={handleLogout}
             style={{
