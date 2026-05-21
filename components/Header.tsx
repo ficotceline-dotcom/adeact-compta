@@ -18,7 +18,6 @@ const principalLinks: NavLink[] = [
   { href: '/transactions/new', label: 'Nouvelle transaction', permission: 'new_transaction' },
   { href: '/transactions', label: 'Transactions', permission: 'transactions' },
   { href: '/budgets/archived', label: 'Projets archivés', permission: 'archived_projects' },
-  { href: '/admin/controle-integrite', label: 'Contrôle intégrité', permission: 'admin_referentiel' },
 ]
 
 const followupLinks: NavLink[] = [
@@ -53,6 +52,7 @@ const adminLinks: NavLink[] = [
   { href: '/admin/import', label: 'Import de masse', permission: 'mass_import' },
   { href: '/admin/doublons', label: 'Doublons transactions', permission: 'transaction_duplicates' },
   { href: '/admin/repartition-communication', label: 'Répartition communication', permission: 'communication_split' },
+  { href: '/admin/controle-integrite', label: 'Contrôle intégrité', permission: 'admin_referentiel' },
 ]
 
 function Section({
