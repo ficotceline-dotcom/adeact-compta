@@ -261,7 +261,7 @@ export default function HomePage() {
     setSendingDiscord(true)
     let sent = 0
     let failed = 0
-    const fyLabel = fiscalYears.find((fy) => fy.id === selectedYear)?.year ?? ''
+    const fyLabel = 'Total budget'
 
     // Charger le previsionnel une seule fois
     const { data: forecastData } = await supabase
@@ -298,7 +298,6 @@ export default function HomePage() {
         if (a.budget_id !== budget.id) return false
         const tx = firstObj(a.transaction)
         if (!tx) return false
-        if (selectedYear && tx.fiscal_year_id !== selectedYear) return false
         return tx.kind === 'expense'
       })
 
@@ -357,7 +356,6 @@ export default function HomePage() {
         if (a.budget_id !== cat.budget_id) return false
         const tx = firstObj(a.transaction)
         if (!tx) return false
-        if (selectedYear && tx.fiscal_year_id !== selectedYear) return false
         return tx.kind === 'expense' && firstObj(a.category)?.id === cat.id
       })
 
