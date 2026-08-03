@@ -252,8 +252,8 @@ export default function HomePage() {
 
   async function sendDiscordUpdates() {
     const budgetsWithWebhook = budgets.filter((b) => b.discord_webhook_url)
-    if (budgetsWithWebhook.length === 0) {
-      alert("Aucun budget n'a de webhook Discord configure. Rendez-vous dans Admin > Referentiel pour en ajouter.")
+    if (budgetsWithWebhook.length === 0 && categoriesWithWebhook.length === 0) {
+      alert("Aucun webhook Discord configure. Rendez-vous dans Admin > Referentiel pour en ajouter (sur le budget ou sur les categories de depense).")
       return
     }
 
