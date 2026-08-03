@@ -62,6 +62,7 @@ type Issue = {
   allocated_cents: number
   missing_cents: number
   details: string
+  subcategoryId?: string | null
 }
 
 function euros(cents: number) {
@@ -297,32 +298,36 @@ export default function ControleIntegritePage() {
       }
 
       if (hasMissingCr) {
+        const firstBadAlloc = txAllocs.find((a) => !a.poste_cr)
         issues.push({
           id: `${tx.id}-missing-cr`,
-          level: 'error',
-          type: 'Compte de résultat manquant',
+          level: ‘error’,
+          type: ‘Compte de résultat manquant’,
           transactionId: tx.id,
           txDate: tx.tx_date,
-          description: tx.description ?? 'Sans libellé',
+          description: tx.description ?? ‘Sans libellé’,
           amount_cents: tx.amount_cents,
           allocated_cents: allocated,
           missing_cents: 0,
-          details: 'Au moins une ligne d’affectation ne remonte pas dans le compte de résultat.',
+          details: ‘Au moins une ligne d’affectation ne remonte pas dans le compte de résultat.’,
+          subcategoryId: firstBadAlloc?.subcategory_id ?? null,
         })
       }
 
       if (hasMissingBilan) {
+        const firstBadAlloc = txAllocs.find((a) => !a.poste_bilan)
         issues.push({
           id: `${tx.id}-missing-bilan`,
-          level: 'error',
-          type: 'Bilan manquant',
+          level: ‘error’,
+          type: ‘Bilan manquant’,
           transactionId: tx.id,
           txDate: tx.tx_date,
-          description: tx.description ?? 'Sans libellé',
+          description: tx.description ?? ‘Sans libellé’,
           amount_cents: tx.amount_cents,
           allocated_cents: allocated,
           missing_cents: 0,
-          details: 'Au moins une ligne d’affectation ne remonte pas dans le bilan.',
+          details: ‘Au moins une ligne d’affectation ne remonte pas dans le bilan.’,
+          subcategoryId: firstBadAlloc?.subcategory_id ?? null,
         })
       }
     }
@@ -548,7 +553,11 @@ export default function ControleIntegritePage() {
                     <td style={tdStyle}>{issue.details}</td>
                     <td style={tdStyle}>
                       <Link
-                        href={`/transactions/${issue.transactionId}/edit`}
+                        href={
+                          (issue.type === 'Compte de résultat manquant' || issue.type === 'Bilan manquant')
+                            ? `/settings/mapping${issue.subcategoryId ? `?highlight=${issue.subcategoryId}` : ''}`
+                            : `/transactions/${issue.transactionId}/edit`
+                        }
                         style={{
                           display: 'inline-block',
                           padding: '8px 10px',

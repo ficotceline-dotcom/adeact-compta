@@ -5,8 +5,6 @@ import { supabase } from '@/lib/supabase'
 
 type Row = {
   full_name: string
-  email: string | null
-  phone: string | null
   budget: string | null
   paid_cents: number
   due_cents: number
@@ -58,8 +56,6 @@ export default function MembersPage(){
         <thead>
           <tr>
             <th style={th}>Nom</th>
-            <th style={th}>Email</th>
-            <th style={th}>Téléphone</th>
             <th style={th}>Projet</th>
             <th style={th}>Montant payé</th>
           </tr>
@@ -74,8 +70,6 @@ export default function MembersPage(){
             return (
               <tr key={i}>
                 <td style={td}>{r.full_name}</td>
-                <td style={td}>{r.email}</td>
-                <td style={td}>{r.phone}</td>
                 <td style={td}>{r.budget ?? '-'}</td>
 
                 <td style={{

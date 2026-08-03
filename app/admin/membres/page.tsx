@@ -6,8 +6,6 @@ import { supabase } from '@/lib/supabase'
 type Member = {
   id: string
   full_name: string
-  email: string | null
-  phone: string | null
   notes: string | null
   is_active: boolean
   ordre: number
@@ -100,8 +98,6 @@ export default function AdminMembresPage() {
   const [newSchoolYearEnd, setNewSchoolYearEnd] = useState('')
 
   const [newMemberName, setNewMemberName] = useState('')
-  const [newMemberEmail, setNewMemberEmail] = useState('')
-  const [newMemberPhone, setNewMemberPhone] = useState('')
   const [newMemberNotes, setNewMemberNotes] = useState('')
 
   const [newMemberRegistered, setNewMemberRegistered] = useState(false)
@@ -290,8 +286,6 @@ export default function AdminMembresPage() {
         .from('members')
         .insert({
           full_name: newMemberName.trim(),
-          email: newMemberEmail.trim() || null,
-          phone: newMemberPhone.trim() || null,
           notes: newMemberNotes.trim() || null,
           is_active: true,
           ordre: nextOrdre,
@@ -319,8 +313,6 @@ export default function AdminMembresPage() {
       if (regErr) throw regErr
 
       setNewMemberName('')
-      setNewMemberEmail('')
-      setNewMemberPhone('')
       setNewMemberNotes('')
       setNewMemberRegistered(false)
       setNewMemberFormCompleted(false)
@@ -638,20 +630,6 @@ export default function AdminMembresPage() {
           />
 
           <input
-            placeholder="Email"
-            value={newMemberEmail}
-            onChange={(e) => setNewMemberEmail(e.target.value)}
-            style={{ padding: 8 }}
-          />
-
-          <input
-            placeholder="Téléphone"
-            value={newMemberPhone}
-            onChange={(e) => setNewMemberPhone(e.target.value)}
-            style={{ padding: 8 }}
-          />
-
-          <input
             placeholder="Notes membre"
             value={newMemberNotes}
             onChange={(e) => setNewMemberNotes(e.target.value)}
@@ -830,8 +808,6 @@ export default function AdminMembresPage() {
                       updateMember(member.id, {
                         full_name: member.full_name,
                         ordre: member.ordre,
-                        email: member.email,
-                        phone: member.phone,
                         notes: member.notes,
                         is_active: member.is_active,
                       })
@@ -864,26 +840,6 @@ export default function AdminMembresPage() {
                 </div>
 
                 <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-                  <input
-                    placeholder="Email"
-                    value={member.email ?? ''}
-                    onChange={(e) =>
-                      setMembers((prev) =>
-                        prev.map((m) => (m.id === member.id ? { ...m, email: e.target.value } : m))
-                      )
-                    }
-                    style={{ padding: 8 }}
-                  />
-                  <input
-                    placeholder="Téléphone"
-                    value={member.phone ?? ''}
-                    onChange={(e) =>
-                      setMembers((prev) =>
-                        prev.map((m) => (m.id === member.id ? { ...m, phone: e.target.value } : m))
-                      )
-                    }
-                    style={{ padding: 8 }}
-                  />
                   <input
                     placeholder="Notes membre"
                     value={member.notes ?? ''}

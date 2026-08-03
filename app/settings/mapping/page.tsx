@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 type Category = {
@@ -27,9 +28,19 @@ export default function MappingPage() {
   const [crPostes, setCrPostes] = useState<string[]>([])
   const [bilanPostes, setBilanPostes] = useState<string[]>([])
 
+  const searchParams = useSearchParams()
+  const highlight = searchParams.get('highlight')
+  const highlightRef = useRef<HTMLTableRowElement | null>(null)
+
   useEffect(() => {
     load()
   }, [])
+
+  useEffect(() => {
+    if (highlight && highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [highlight, subcategories])
 
   async function load() {
     const { data: c } = await supabase.from('categories').select('id,name')
@@ -97,8 +108,18 @@ export default function MappingPage() {
             const cat = categories.find((c) => c.id === s.category_id)
             const mapping = mappings[s.id] ?? { poste_cr: '', poste_bilan: '' }
 
+            const isHighlighted = s.id === highlight
+
             return (
-              <tr key={s.id}>
+              <tr
+                key={s.id}
+                ref={isHighlighted ? highlightRef : null}
+                style={isHighlighted ? {
+                  background: '#fef9c3',
+                  outline: '2px solid #ca8a04',
+                  outlineOffset: -2,
+                } : undefined}
+              >
                 <td>{cat?.name}</td>
 
                 <td>{s.name}</td>
