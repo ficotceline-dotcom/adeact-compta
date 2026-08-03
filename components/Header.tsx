@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -83,10 +84,11 @@ function Section({
     <div style={{ marginTop: 18 }}>
       <div
         style={{
-          fontSize: 13,
+          fontSize: 11,
           fontWeight: 800,
-          opacity: 0.6,
+          color: '#c8202e',
           textTransform: 'uppercase',
+          letterSpacing: '0.08em',
           marginBottom: 8,
         }}
       >
@@ -106,9 +108,9 @@ function Section({
                 textDecoration: 'none',
                 padding: '10px 12px',
                 borderRadius: 10,
-                border: '1px solid #ddd',
-                background: active ? '#f3f4f6' : 'white',
-                color: 'inherit',
+                border: active ? '1px solid #c8202e' : '1px solid #e5e5e5',
+                background: active ? '#fdf0f1' : 'white',
+                color: active ? '#c8202e' : '#1a1a1a',
                 fontWeight: active ? 800 : 500,
                 transition: '0.15s',
               }}
@@ -180,8 +182,8 @@ export function Header() {
 
       <header
         style={{
-          borderBottom: '1px solid #eee',
-          padding: '14px 20px',
+          borderBottom: '3px solid #c8202e',
+          padding: '10px 20px',
           fontFamily: 'system-ui',
           display: 'flex',
           alignItems: 'center',
@@ -191,17 +193,20 @@ export function Header() {
           background: 'white',
           zIndex: 40,
           gap: 12,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
             onClick={() => router.back()}
             style={{
-              border: '1px solid #ddd',
-              borderRadius: 10,
+              border: '1px solid #e5e5e5',
+              borderRadius: 8,
               background: 'white',
-              padding: '8px 10px',
+              padding: '7px 10px',
               cursor: 'pointer',
+              color: '#666',
+              fontSize: 16,
             }}
           >
             ←
@@ -210,31 +215,43 @@ export function Header() {
           <button
             onClick={() => setOpen(true)}
             style={{
-              border: '1px solid #ddd',
-              borderRadius: 10,
+              border: '1px solid #e5e5e5',
+              borderRadius: 8,
               background: 'white',
-              padding: '8px 10px',
+              padding: '7px 10px',
               cursor: 'pointer',
-              fontSize: 20,
+              fontSize: 18,
               lineHeight: 1,
+              color: '#1a1a1a',
             }}
           >
             ☰
           </button>
 
-          <span style={{ fontWeight: 900 }}>
-            ADEACT • Trésorerie
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Image
+              src="/logo.png"
+              alt="ADEACT"
+              width={48}
+              height={34}
+              style={{ objectFit: 'contain' }}
+            />
+            <span style={{ fontWeight: 900, fontSize: 15, color: '#1a1a1a', letterSpacing: '-0.3px' }}>
+              Trésorerie
+            </span>
+          </div>
         </div>
 
         <button
           onClick={handleLogout}
           style={{
-            padding: '8px 10px',
-            borderRadius: 999,
-            border: '1px solid #ddd',
-            background: 'transparent',
+            padding: '7px 12px',
+            borderRadius: 8,
+            border: '1px solid #e5e5e5',
+            background: 'white',
             cursor: 'pointer',
+            fontSize: 13,
+            color: '#666',
           }}
         >
           Se déconnecter
@@ -265,20 +282,28 @@ export function Header() {
             justifyContent: 'space-between',
             alignItems: 'center',
             marginBottom: 18,
+            paddingBottom: 14,
+            borderBottom: '2px solid #c8202e',
           }}
         >
-          <div style={{ fontWeight: 900, fontSize: 18 }}>
-            Menu
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Image src="/logo.png" alt="ADEACT" width={44} height={31} style={{ objectFit: 'contain' }} />
+            <div>
+              <div style={{ fontWeight: 900, fontSize: 15, color: '#1a1a1a' }}>ADEACT</div>
+              <div style={{ fontSize: 11, color: '#999', marginTop: -1 }}>Trésorerie</div>
+            </div>
           </div>
 
           <button
             onClick={() => setOpen(false)}
             style={{
-              border: '1px solid #ddd',
-              borderRadius: 10,
+              border: '1px solid #e5e5e5',
+              borderRadius: 8,
               background: 'white',
-              padding: '8px 10px',
+              padding: '7px 10px',
               cursor: 'pointer',
+              color: '#666',
+              fontSize: 13,
             }}
           >
             Fermer
