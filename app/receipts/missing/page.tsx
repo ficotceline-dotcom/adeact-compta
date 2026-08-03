@@ -128,8 +128,6 @@ export default function MissingReceiptsPage() {
         if (error) throw error
       }
 
-      if (error) throw error
-
       const txUrl = `${window.location.origin}/transactions/${row.id}/edit`
       const montant = centsToEuros(row.amount_cents)
       const date = formatFrDate(row.tx_date)
@@ -140,7 +138,7 @@ export default function MissingReceiptsPage() {
         ``,
         `Peux-tu ajouter le justificatif correspondant à cette transaction stp ?`,
         ``,
-        `📄 **${libelle}** — ${date} — ${montant} €`,
+        `📄 **${libelle}** - ${date} - ${montant} €`,
         `🔗 ${txUrl}`,
       ].join('\n')
 
@@ -241,7 +239,7 @@ export default function MissingReceiptsPage() {
               </div>
 
               <div style={{ opacity: 0.75, fontSize: 14 }}>
-                {formatFrDate(row.tx_date)} — {centsToEuros(row.amount_cents)} €
+                {formatFrDate(row.tx_date)} - {centsToEuros(row.amount_cents)} €
               </div>
 
               {name && (

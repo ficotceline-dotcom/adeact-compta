@@ -384,15 +384,15 @@ export default function NewTransactionPage() {
   }
 
   function budgetName(id: string) {
-    return budgets.find((b) => b.id === id)?.name ?? '—'
+    return budgets.find((b) => b.id === id)?.name ?? '-'
   }
 
   function categoryName(id: string) {
-    return categories.find((c) => c.id === id)?.name ?? '—'
+    return categories.find((c) => c.id === id)?.name ?? '-'
   }
 
   function subcategoryName(id: string) {
-    return subcategories.find((s) => s.id === id)?.name ?? '—'
+    return subcategories.find((s) => s.id === id)?.name ?? '-'
   }
 
   async function save() {
@@ -504,7 +504,7 @@ export default function NewTransactionPage() {
           ``,
           `Peux-tu ajouter le justificatif correspondant à cette transaction stp ?`,
           ``,
-          `📄 **${finalDescription}** — ${txDate} — ${montant} €`,
+          `📄 **${finalDescription}** - ${txDate} - ${montant} €`,
           `🔗 ${txUrl}`,
         ].join('\n')
 
@@ -643,9 +643,9 @@ export default function NewTransactionPage() {
               <select
                 value={linkedMemberId}
                 onChange={(e) => setLinkedMemberId(e.target.value)}
-                style={{ display: ‘block’, width: ‘100%’, padding: 8, marginTop: 6 }}
+                style={{ display: 'block', width: '100%', padding: 8, marginTop: 6 }}
               >
-                <option value=””>— Aucun —</option>
+                <option value="">- Aucun -</option>
                 {members.map((m) => (
                   <option key={m.id} value={m.id}>{m.full_name}</option>
                 ))}
@@ -655,24 +655,24 @@ export default function NewTransactionPage() {
             <label>
               Pièce jointe (optionnelle)
               <input
-                type=”file”
-                accept=”.pdf,.png,.jpg,.jpeg”
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg"
                 onChange={(e) => {
                   const file = e.target.files?.[0] ?? null
                   setReceiptFile(file)
                   if (file) setSendReceiptRequest(false)
                 }}
-                style={{ display: ‘block’, width: ‘100%’, padding: 8, marginTop: 6 }}
+                style={{ display: 'block', width: '100%', padding: 8, marginTop: 6 }}
               />
               <div style={{ marginTop: 6, fontSize: 13, opacity: 0.75 }}>
-                Si tu n’ajoutes pas de fichier maintenant, la dépense sera automatiquement marquée “PJ manquante”.
+                Si tu n'ajoutes pas de fichier maintenant, la dépense sera automatiquement marquée "PJ manquante".
               </div>
             </label>
 
             {!receiptFile && (
-              <label style={{ display: ‘flex’, gap: 8, alignItems: ‘center’ }}>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <input
-                  type=”checkbox”
+                  type="checkbox"
                   checked={sendReceiptRequest}
                   onChange={(e) => setSendReceiptRequest(e.target.checked)}
                 />
@@ -716,7 +716,7 @@ export default function NewTransactionPage() {
                     }}
                     style={{ display: 'block', width: '100%', padding: 8, marginTop: 6 }}
                   >
-                    <option value="">—</option>
+                    <option value="">-</option>
                     {schoolYears.map((sy) => (
                       <option key={sy.id} value={sy.id}>
                         {sy.name}
@@ -732,12 +732,12 @@ export default function NewTransactionPage() {
                     onChange={(e) => setSelectedRegistrationId(e.target.value)}
                     style={{ display: 'block', width: '100%', padding: 8, marginTop: 6 }}
                   >
-                    <option value="">—</option>
+                    <option value="">-</option>
                     {availableRegistrations.map((reg) => {
                       const member = members.find((m) => m.id === reg.member_id)
                       return (
                         <option key={reg.id} value={reg.id}>
-                          {member?.full_name ?? '—'}
+                          {member?.full_name ?? '-'}
                         </option>
                       )
                     })}
@@ -748,7 +748,7 @@ export default function NewTransactionPage() {
                   <div style={{ fontSize: 14, opacity: 0.85 }}>
                     Affectation automatique :
                     <br />
-                    <b>{budgetName(selectedRegistration.budget_id ?? '')}</b> —{' '}
+                    <b>{budgetName(selectedRegistration.budget_id ?? '')}</b> -{' '}
                     <b>{categoryName(selectedRegistration.category_id ?? '')}</b>
                     {selectedRegistration.subcategory_id
                       ? ` • ${subcategoryName(selectedRegistration.subcategory_id)}`
@@ -797,7 +797,7 @@ export default function NewTransactionPage() {
                       }
                       style={{ display: 'block', width: '100%', padding: 8, marginTop: 6 }}
                     >
-                      <option value="">—</option>
+                      <option value="">-</option>
                       {budgets.map((b) => (
                         <option key={b.id} value={b.id}>
                           {b.name}
@@ -819,7 +819,7 @@ export default function NewTransactionPage() {
                       disabled={!a.budget_id}
                       style={{ display: 'block', width: '100%', padding: 8, marginTop: 6 }}
                     >
-                      <option value="">—</option>
+                      <option value="">-</option>
                       {cats.map((c) => (
                         <option key={c.id} value={c.id}>
                           {c.name}
@@ -838,7 +838,7 @@ export default function NewTransactionPage() {
                       disabled={!a.category_id}
                       style={{ display: 'block', width: '100%', padding: 8, marginTop: 6 }}
                     >
-                      <option value="">—</option>
+                      <option value="">-</option>
                       {subs.map((s) => (
                         <option key={s.id} value={s.id}>
                           {s.name}
@@ -878,13 +878,13 @@ export default function NewTransactionPage() {
         <div style={{ marginTop: 12, border: '1px solid #ddd', borderRadius: 10, padding: 12 }}>
           {allocations.length === 0 ? (
             <div style={{ color: 'crimson' }}>
-              Impossible de répartir automatiquement tant que la configuration n’est pas complète.
+              Impossible de répartir automatiquement tant que la configuration n'est pas complète.
             </div>
           ) : (
             <div style={{ display: 'grid', gap: 8 }}>
               {allocations.map((a, i) => (
                 <div key={i}>
-                  <b>{budgetName(a.budget_id)}</b> — {categoryName(a.category_id)}
+                  <b>{budgetName(a.budget_id)}</b> - {categoryName(a.category_id)}
                   {a.subcategory_id ? ` • ${subcategoryName(a.subcategory_id)}` : ''} :
                   {' '}<b>{centsToEuros(a.amount_cents)} €</b>
                 </div>
@@ -895,10 +895,10 @@ export default function NewTransactionPage() {
       )}
 
       <div style={{ marginTop: 12, fontSize: 14 }}>
-        Somme allocations : <b>{centsToEuros(allocSumCents)} €</b> — Montant transaction :{' '}
+        Somme allocations : <b>{centsToEuros(allocSumCents)} €</b> - Montant transaction :{' '}
         <b>{centsToEuros(totalCents)} €</b>
         {allocSumCents !== totalCents && (
-          <span style={{ color: 'crimson' }}> — ⚠️ La somme doit être égale au montant</span>
+          <span style={{ color: 'crimson' }}> - ⚠️ La somme doit être égale au montant</span>
         )}
       </div>
 
