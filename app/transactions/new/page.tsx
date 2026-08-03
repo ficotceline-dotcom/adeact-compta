@@ -508,7 +508,10 @@ export default function NewTransactionPage() {
           `🔗 ${txUrl}`,
         ].join('\n')
 
-        await fetch('https://discord.com/api/webhooks/1533772402725621892/v1FlGgeJIbLvVny2y5e1jKhr_okuXc31l9sBxFozghPvqvHL5IO-IroquS2OApEPA8aT', {
+        const webhookUrl = process.env.NEXT_PUBLIC_DISCORD_WEBHOOK_URL
+        if (!webhookUrl) return
+
+        await fetch(webhookUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: message }),

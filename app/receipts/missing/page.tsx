@@ -23,7 +23,7 @@ type Member = {
   full_name: string
 }
 
-const DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/1533772402725621892/v1FlGgeJIbLvVny2y5e1jKhr_okuXc31l9sBxFozghPvqvHL5IO-IroquS2OApEPA8aT'
+const DISCORD_WEBHOOK = process.env.NEXT_PUBLIC_DISCORD_WEBHOOK_URL ?? ''
 
 function centsToEuros(cents: number) {
   return (cents / 100).toFixed(2)
@@ -141,6 +141,11 @@ export default function MissingReceiptsPage() {
         `📄 **${libelle}** - ${date} - ${montant} €`,
         `🔗 ${txUrl}`,
       ].join('\n')
+
+      if (!DISCORD_WEBHOOK) {
+        alert('⚠️ Variable NEXT_PUBLIC_DISCORD_WEBHOOK_URL non configurée dans Render.')
+        return
+      }
 
       const discordRes = await fetch(DISCORD_WEBHOOK, {
         method: 'POST',
