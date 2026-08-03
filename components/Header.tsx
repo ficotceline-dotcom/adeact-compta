@@ -18,7 +18,7 @@ const principalLinks: NavLink[] = [
   { href: '/members', label: 'Membres', permission: 'members' },
   { href: '/transactions/new', label: 'Nouvelle transaction', permission: 'new_transaction' },
   { href: '/transactions', label: 'Transactions', permission: 'transactions' },
-  { href: '/budgets/archived', label: 'Projets archivés', permission: 'archived_projects' },
+  { href: '/budgets/archived', label: 'Budgets clôturés', permission: 'archived_projects' },
 ]
 
 const followupLinks: NavLink[] = [

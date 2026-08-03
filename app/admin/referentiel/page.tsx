@@ -8,6 +8,7 @@ type Budget = {
   name: string
   ordre: number
   is_archived?: boolean
+  closed_at?: string | null
   discord_webhook_url?: string | null
 }
 
@@ -72,7 +73,7 @@ export default function AdminReferentielPage() {
     const [budgetsRes, categoriesRes, subcategoriesRes] = await Promise.all([
       supabase
         .from('budgets')
-        .select('id,name,ordre,is_archived,discord_webhook_url')
+        .select('id,name,ordre,is_archived,closed_at,discord_webhook_url')
         .order('ordre'),
       supabase
         .from('categories')
@@ -190,6 +191,34 @@ export default function AdminReferentielPage() {
     const current = budgets.find((b) => b.id === selectedBudgetId)
     setEditingWebhook(current?.discord_webhook_url ?? '')
   }, [selectedBudgetId, budgets])
+
+  async function closeBudget() {
+    if (!selectedBudgetId) return
+    const budget = budgets.find((b) => b.id === selectedBudgetId)
+    if (!budget) return
+
+    const ok = window.confirm(
+      `Clôturer le budget "${budget.name}" ?\n\nIl ne sera plus modifiable depuis les vues principales mais restera accessible pour les justificatifs et les rapports.`
+    )
+    if (!ok) return
+
+    setSaving(true)
+    try {
+      const { error } = await supabase
+        .from('budgets')
+        .update({ is_archived: true, closed_at: new Date().toISOString() })
+        .eq('id', selectedBudgetId)
+      if (error) throw error
+      setMessage('✅ Budget clôturé')
+      setSelectedBudgetId('')
+      await load()
+    } catch (e: any) {
+      console.error(e)
+      alert(`Erreur clôture budget : ${e?.message ?? 'inconnue'}`)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   async function saveWebhook() {
     if (!selectedBudgetId) return
@@ -501,17 +530,38 @@ export default function AdminReferentielPage() {
 
           <div>
             <div style={labelStyle}>Budget affiché</div>
-            <select
-              value={selectedBudgetId}
-              onChange={(e) => setSelectedBudgetId(e.target.value)}
-              style={selectStyle}
-            >
-              {budgets.map((budget) => (
-                <option key={budget.id} value={budget.id}>
-                  {budget.name}
-                </option>
-              ))}
-            </select>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <select
+                value={selectedBudgetId}
+                onChange={(e) => setSelectedBudgetId(e.target.value)}
+                style={selectStyle}
+              >
+                {budgets.map((budget) => (
+                  <option key={budget.id} value={budget.id}>
+                    {budget.name}
+                  </option>
+                ))}
+              </select>
+              {selectedBudgetId && (
+                <button
+                  onClick={closeBudget}
+                  disabled={saving}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: 8,
+                    border: '1px solid #c8202e',
+                    background: 'white',
+                    color: '#c8202e',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    fontSize: 13,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  🔒 Clôturer ce budget
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
