@@ -14,6 +14,7 @@ type Budget = {
 type CategoryWithWebhook = {
   id: string
   name: string
+  budget_id: string
   discord_webhook_url: string
 }
 
@@ -192,7 +193,7 @@ export default function HomePage() {
 
       supabase
         .from('categories')
-        .select('id,name,discord_webhook_url')
+        .select('id,name,budget_id,discord_webhook_url')
         .eq('kind', 'expense')
         .not('discord_webhook_url', 'is', null),
     ])
@@ -253,7 +254,7 @@ export default function HomePage() {
   async function sendDiscordUpdates() {
     const budgetsWithWebhook = budgets.filter((b) => b.discord_webhook_url)
     if (budgetsWithWebhook.length === 0 && categoriesWithWebhook.length === 0) {
-      alert("Aucun webhook Discord configure. Rendez-vous dans Admin > Referentiel pour en ajouter (sur le budget ou sur les categories de depense).")
+      alert("Aucun webhook Discord configure. Rendez-vous dans Admin > Referentiel pour en ajouter.")
       return
     }
 
@@ -262,9 +263,38 @@ export default function HomePage() {
     let failed = 0
     const fyLabel = fiscalYears.find((fy) => fy.id === selectedYear)?.year ?? ''
 
+    // Charger le previsionnel une seule fois
+    const { data: forecastData } = await supabase
+      .from('budget_forecasts')
+      .select('budget_id,category_id,subcategory_id,amount_cents')
+      .eq('kind', 'expense')
+    const forecasts = (forecastData ?? []) as {
+      budget_id: string
+      category_id: string
+      subcategory_id: string | null
+      amount_cents: number
+    }[]
+
+    async function sendEmbed(webhookUrl: string, embed: object) {
+      try {
+        const res = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ embeds: [embed] }),
+        })
+        if (res.ok) { sent++ } else {
+          failed++
+          console.error('Discord error', res.status, await res.text())
+        }
+      } catch (e) {
+        failed++
+        console.error('Discord fetch error', e)
+      }
+    }
+
+    // ── Webhook budget général : résumé par catégorie ──────────────────
     for (const budget of budgetsWithWebhook) {
-      // Filtrer les allocations par budget ET par annee selectionnee
-      const rows = allocations.filter((a) => {
+      const budgetRows = allocations.filter((a) => {
         if (a.budget_id !== budget.id) return false
         const tx = firstObj(a.transaction)
         if (!tx) return false
@@ -272,131 +302,117 @@ export default function HomePage() {
         return tx.kind === 'expense'
       })
 
-      // Grouper par categorie > sous-categorie
-      const categoryMap = new Map<string, { total: number; subs: Map<string, number> }>()
-      for (const row of rows) {
-        const catName = firstObj(row.category)?.name ?? 'Sans categorie'
-        const subName = firstObj(row.subcategory)?.name ?? 'Sans sous-categorie'
-        if (!categoryMap.has(catName)) {
-          categoryMap.set(catName, { total: 0, subs: new Map() })
-        }
-        const entry = categoryMap.get(catName)!
-        entry.total += row.amount_cents
-        entry.subs.set(subName, (entry.subs.get(subName) ?? 0) + row.amount_cents)
+      // Réalisé par catégorie
+      const realByCat = new Map<string, { name: string; amount: number }>()
+      for (const row of budgetRows) {
+        const cat = firstObj(row.category)
+        if (!cat) continue
+        const prev = realByCat.get(cat.id) ?? { name: cat.name, amount: 0 }
+        realByCat.set(cat.id, { name: cat.name, amount: prev.amount + row.amount_cents })
       }
 
-      const sortedCategories = Array.from(categoryMap.entries()).sort((a, b) =>
-        a[0].localeCompare(b[0])
-      )
+      // Prévisionnel par catégorie
+      const prevByCat = new Map<string, number>()
+      for (const f of forecasts.filter((f) => f.budget_id === budget.id)) {
+        prevByCat.set(f.category_id, (prevByCat.get(f.category_id) ?? 0) + f.amount_cents)
+      }
 
-      const totalDepenses = sortedCategories.reduce((sum, [, v]) => sum + v.total, 0)
+      const allCatIds = new Set([...realByCat.keys(), ...prevByCat.keys()])
+      const totalReal = Array.from(realByCat.values()).reduce((s, v) => s + v.amount, 0)
+      const totalPrev = Array.from(prevByCat.values()).reduce((s, v) => s + v, 0)
 
-      // Construire les fields Discord (max 1024 chars par field)
-      const fields = sortedCategories.map(([catName, data]) => {
-        const lines: string[] = []
-        Array.from(data.subs.entries())
-          .sort((a, b) => a[0].localeCompare(b[0]))
-          .forEach(([subName, amount]) => {
-            lines.push(`${subName} : ${centsToEuros(amount)} €`)
-          })
-        lines.push(`**Total : ${centsToEuros(data.total)} €**`)
-        return {
-          name: catName,
-          value: lines.join('\n') || 'Aucune depense',
-          inline: false,
-        }
-      })
+      const fields = Array.from(allCatIds)
+        .map((catId) => {
+          const real = realByCat.get(catId)?.amount ?? 0
+          const prev = prevByCat.get(catId) ?? 0
+          const name = realByCat.get(catId)?.name ?? '?'
+          const ecart = real - prev
+          const sign = ecart >= 0 ? '+' : ''
+          return {
+            name,
+            value: `Prévu : ${centsToEuros(prev)} €\nRéalisé : ${centsToEuros(real)} €\nÉcart : **${sign}${centsToEuros(ecart)} €**`,
+            inline: true,
+          }
+        })
+        .sort((a, b) => a.name.localeCompare(b.name))
 
       if (fields.length === 0) {
-        fields.push({ name: 'Aucune depense', value: 'Pas de depenses enregistrees pour cette periode.', inline: false })
+        fields.push({ name: 'Aucune dépense', value: 'Rien pour cette période.', inline: false })
       }
 
-      const embed = {
-        title: `Depenses — ${budget.name} (${fyLabel})`,
-        color: 0xe11d48, // rouge pour depenses
+      const ecartTotal = totalReal - totalPrev
+      const signTotal = ecartTotal >= 0 ? '+' : ''
+      await sendEmbed(budget.discord_webhook_url!, {
+        title: `Budget ${budget.name} — Dépenses (${fyLabel})`,
+        color: 0xe11d48,
         fields,
-        footer: { text: `Total depenses : ${centsToEuros(totalDepenses)} €` },
+        footer: { text: `Prévu : ${centsToEuros(totalPrev)} € | Réalisé : ${centsToEuros(totalReal)} € | Écart : ${signTotal}${centsToEuros(ecartTotal)} €` },
         timestamp: new Date().toISOString(),
-      }
-
-      try {
-        const res = await fetch(budget.discord_webhook_url!, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ embeds: [embed] }),
-        })
-        if (res.ok) {
-          sent++
-        } else {
-          const errText = await res.text()
-          failed++
-          console.error('Discord error for', budget.name, res.status, errText)
-        }
-      } catch (e) {
-        failed++
-        console.error('Discord fetch error for', budget.name, e)
-      }
+      })
     }
 
-    // Envoi par catégorie de dépense
+    // ── Webhook par catégorie : détail par sous-catégorie ──────────────
     for (const cat of categoriesWithWebhook) {
       const catRows = allocations.filter((a) => {
+        if (a.budget_id !== cat.budget_id) return false
         const tx = firstObj(a.transaction)
         if (!tx) return false
         if (selectedYear && tx.fiscal_year_id !== selectedYear) return false
-        if (tx.kind !== 'expense') return false
-        return firstObj(a.category)?.id === cat.id
+        return tx.kind === 'expense' && firstObj(a.category)?.id === cat.id
       })
 
-      // Grouper par sous-catégorie
-      const subMap = new Map<string, number>()
+      // Réalisé par sous-catégorie (id → { name, amount })
+      const realBySub = new Map<string, { name: string; amount: number }>()
       for (const row of catRows) {
-        const subName = firstObj(row.subcategory)?.name ?? 'Sans sous-categorie'
-        subMap.set(subName, (subMap.get(subName) ?? 0) + row.amount_cents)
+        const sub = firstObj(row.subcategory)
+        const key = sub?.id ?? '__none__'
+        const name = sub?.name ?? 'Sans sous-categorie'
+        const prev = realBySub.get(key) ?? { name, amount: 0 }
+        realBySub.set(key, { name, amount: prev.amount + row.amount_cents })
       }
 
-      const totalCat = catRows.reduce((s, r) => s + r.amount_cents, 0)
+      // Prévisionnel par sous-catégorie
+      const prevBySub = new Map<string, number>()
+      for (const f of forecasts.filter((f) => f.category_id === cat.id && f.budget_id === cat.budget_id)) {
+        const key = f.subcategory_id ?? '__none__'
+        prevBySub.set(key, (prevBySub.get(key) ?? 0) + f.amount_cents)
+      }
 
-      const fields = Array.from(subMap.entries())
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([subName, amount]) => ({
-          name: subName,
-          value: `${centsToEuros(amount)} €`,
-          inline: true,
-        }))
+      const allSubIds = new Set([...realBySub.keys(), ...prevBySub.keys()])
+      const totalReal = Array.from(realBySub.values()).reduce((s, v) => s + v.amount, 0)
+      const totalPrev = Array.from(prevBySub.values()).reduce((s, v) => s + v, 0)
+
+      const fields = Array.from(allSubIds)
+        .map((subId) => {
+          const real = realBySub.get(subId)?.amount ?? 0
+          const prev = prevBySub.get(subId) ?? 0
+          const name = realBySub.get(subId)?.name ?? 'Sans sous-categorie'
+          const ecart = real - prev
+          const sign = ecart >= 0 ? '+' : ''
+          return {
+            name,
+            value: `Prévu : ${centsToEuros(prev)} €\nRéalisé : ${centsToEuros(real)} €\nÉcart : **${sign}${centsToEuros(ecart)} €**`,
+            inline: true,
+          }
+        })
+        .sort((a, b) => a.name.localeCompare(b.name))
 
       if (fields.length === 0) {
-        fields.push({ name: 'Aucune depense', value: 'Pas de depenses enregistrees.', inline: false })
+        fields.push({ name: 'Aucune dépense', value: 'Rien pour cette période.', inline: false })
       }
 
-      const embed = {
-        title: `Depenses — ${cat.name} (${fyLabel})`,
-        color: 0xe11d48,
+      const ecartTotal = totalReal - totalPrev
+      const signTotal = ecartTotal >= 0 ? '+' : ''
+      await sendEmbed(cat.discord_webhook_url, {
+        title: `${cat.name} — Prévisionnel vs Réalisé (${fyLabel})`,
+        color: ecartTotal > 0 ? 0xe11d48 : 0x16a34a,
         fields,
-        footer: { text: `Total : ${centsToEuros(totalCat)} €` },
+        footer: { text: `Prévu : ${centsToEuros(totalPrev)} € | Réalisé : ${centsToEuros(totalReal)} € | Écart : ${signTotal}${centsToEuros(ecartTotal)} €` },
         timestamp: new Date().toISOString(),
-      }
-
-      try {
-        const res = await fetch(cat.discord_webhook_url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ embeds: [embed] }),
-        })
-        if (res.ok) {
-          sent++
-        } else {
-          failed++
-          console.error('Discord error for category', cat.name, res.status)
-        }
-      } catch (e) {
-        failed++
-        console.error('Discord fetch error for category', cat.name, e)
-      }
+      })
     }
 
     setSendingDiscord(false)
-
     if (failed === 0) {
       alert(`Mise a jour Discord envoyee (${sent} message(s)) !`)
     } else {
