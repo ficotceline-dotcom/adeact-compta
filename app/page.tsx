@@ -11,6 +11,12 @@ type Budget = {
   discord_webhook_url?: string | null
 }
 
+type CategoryWithWebhook = {
+  id: string
+  name: string
+  discord_webhook_url: string
+}
+
 type FiscalYear = {
   id: string
   year: number
@@ -141,6 +147,7 @@ export default function HomePage() {
   const [lastTxDate, setLastTxDate] = useState<string | null>(null)
   const [openBudgetId, setOpenBudgetId] = useState<string | null>(null)
   const [sendingDiscord, setSendingDiscord] = useState(false)
+  const [categoriesWithWebhook, setCategoriesWithWebhook] = useState<CategoryWithWebhook[]>([])
 
   useEffect(() => {
     load()
@@ -154,6 +161,7 @@ export default function HomePage() {
       { data: allocData, error: e2 },
       { data: fyData, error: e3 },
       { data: txDates, error: e4 },
+      { data: catWebhookData },
     ] = await Promise.all([
       supabase
         .from('budgets')
@@ -181,6 +189,12 @@ export default function HomePage() {
       supabase
         .from('transactions')
         .select('tx_date'),
+
+      supabase
+        .from('categories')
+        .select('id,name,discord_webhook_url')
+        .eq('kind', 'expense')
+        .not('discord_webhook_url', 'is', null),
     ])
 
     if (e1 || e2 || e3 || e4) {
@@ -203,6 +217,7 @@ export default function HomePage() {
     }
 
     setLastTxDate(getMaxTxDate(txDateRows))
+    setCategoriesWithWebhook((catWebhookData ?? []) as CategoryWithWebhook[])
     setLoading(false)
   }
 
@@ -323,10 +338,67 @@ export default function HomePage() {
       }
     }
 
+    // Envoi par catégorie de dépense
+    for (const cat of categoriesWithWebhook) {
+      const catRows = allocations.filter((a) => {
+        const tx = firstObj(a.transaction)
+        if (!tx) return false
+        if (selectedYear && tx.fiscal_year_id !== selectedYear) return false
+        if (tx.kind !== 'expense') return false
+        return firstObj(a.category)?.id === cat.id
+      })
+
+      // Grouper par sous-catégorie
+      const subMap = new Map<string, number>()
+      for (const row of catRows) {
+        const subName = firstObj(row.subcategory)?.name ?? 'Sans sous-categorie'
+        subMap.set(subName, (subMap.get(subName) ?? 0) + row.amount_cents)
+      }
+
+      const totalCat = catRows.reduce((s, r) => s + r.amount_cents, 0)
+
+      const fields = Array.from(subMap.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([subName, amount]) => ({
+          name: subName,
+          value: `${centsToEuros(amount)} €`,
+          inline: true,
+        }))
+
+      if (fields.length === 0) {
+        fields.push({ name: 'Aucune depense', value: 'Pas de depenses enregistrees.', inline: false })
+      }
+
+      const embed = {
+        title: `Depenses — ${cat.name} (${fyLabel})`,
+        color: 0xe11d48,
+        fields,
+        footer: { text: `Total : ${centsToEuros(totalCat)} €` },
+        timestamp: new Date().toISOString(),
+      }
+
+      try {
+        const res = await fetch(cat.discord_webhook_url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ embeds: [embed] }),
+        })
+        if (res.ok) {
+          sent++
+        } else {
+          failed++
+          console.error('Discord error for category', cat.name, res.status)
+        }
+      } catch (e) {
+        failed++
+        console.error('Discord fetch error for category', cat.name, e)
+      }
+    }
+
     setSendingDiscord(false)
 
     if (failed === 0) {
-      alert(`Mise a jour Discord envoyee pour ${sent} budget(s) !`)
+      alert(`Mise a jour Discord envoyee (${sent} message(s)) !`)
     } else {
       alert(`Envoye : ${sent}, Echecs : ${failed}. Verifiez les webhooks dans le referentiel.`)
     }

@@ -16,6 +16,7 @@ type Category = {
   name: string
   budget_id: string
   kind: 'income' | 'expense' | null
+  discord_webhook_url?: string | null
 }
 
 type Subcategory = {
@@ -50,6 +51,9 @@ export default function AdminReferentielPage() {
   })
   const [newSubcategoryNames, setNewSubcategoryNames] = useState<Record<string, string>>({})
 
+  const [categoryWebhooks, setCategoryWebhooks] = useState<Record<string, string>>({})
+  const [savingCategoryWebhookId, setSavingCategoryWebhookId] = useState<string | null>(null)
+
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null)
   const [editingCategoryValue, setEditingCategoryValue] = useState('')
 
@@ -72,7 +76,7 @@ export default function AdminReferentielPage() {
         .order('ordre'),
       supabase
         .from('categories')
-        .select('id,name,budget_id,kind')
+        .select('id,name,budget_id,kind,discord_webhook_url')
         .order('name'),
       supabase
         .from('subcategories')
@@ -97,7 +101,15 @@ export default function AdminReferentielPage() {
     const loadedBudgets = ((budgetsRes.data ?? []) as Budget[]).filter((b) => !b.is_archived)
 
     setBudgets(loadedBudgets)
-    setCategories((categoriesRes.data ?? []) as Category[])
+    const loadedCategories = (categoriesRes.data ?? []) as Category[]
+    setCategories(loadedCategories)
+
+    // Initialiser les webhooks par catégorie
+    const webhookMap: Record<string, string> = {}
+    for (const cat of loadedCategories) {
+      webhookMap[cat.id] = cat.discord_webhook_url ?? ''
+    }
+    setCategoryWebhooks(webhookMap)
     setSubcategories((subcategoriesRes.data ?? []) as Subcategory[])
 
     if (loadedBudgets.length > 0) {
@@ -194,6 +206,24 @@ export default function AdminReferentielPage() {
       alert('Erreur enregistrement webhook : ' + (e?.message ?? 'inconnue'))
     } finally {
       setSavingWebhook(false)
+    }
+  }
+
+  async function saveCategoryWebhook(categoryId: string) {
+    setSavingCategoryWebhookId(categoryId)
+    try {
+      const url = categoryWebhooks[categoryId] ?? ''
+      const { error } = await supabase
+        .from('categories')
+        .update({ discord_webhook_url: url.trim() || null })
+        .eq('id', categoryId)
+      if (error) throw error
+      setMessage('✅ Webhook Discord de la categorie enregistre')
+      await load()
+    } catch (e: any) {
+      alert('Erreur enregistrement webhook categorie : ' + (e?.message ?? 'inconnue'))
+    } finally {
+      setSavingCategoryWebhookId(null)
     }
   }
 
@@ -757,6 +787,34 @@ export default function AdminReferentielPage() {
                       </div>
                     </div>
                   )}
+
+                  {/* Webhook Discord par catégorie de dépense */}
+                  <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #f0d8d8' }}>
+                    <div style={{ fontSize: 11, color: '#a05', fontWeight: 700, marginBottom: 5 }}>
+                      🔔 Webhook Discord (optionnel)
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 6 }}>
+                      <input
+                        type="text"
+                        value={categoryWebhooks[block.category.id] ?? ''}
+                        onChange={(e) =>
+                          setCategoryWebhooks((prev) => ({
+                            ...prev,
+                            [block.category.id]: e.target.value,
+                          }))
+                        }
+                        placeholder="https://discord.com/api/webhooks/..."
+                        style={{ ...inputStyle, fontSize: 12, padding: '6px 10px' }}
+                      />
+                      <button
+                        onClick={() => saveCategoryWebhook(block.category.id)}
+                        disabled={savingCategoryWebhookId === block.category.id}
+                        style={{ ...secondaryButtonStyle, fontSize: 12, padding: '6px 10px' }}
+                      >
+                        {savingCategoryWebhookId === block.category.id ? '...' : 'Sauver'}
+                      </button>
+                    </div>
+                  </div>
 
                   <div style={subListStyle}>
                     {block.subcategories.length === 0 ? (
