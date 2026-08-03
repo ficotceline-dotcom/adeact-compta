@@ -429,14 +429,14 @@ export default function InvoicesPage() {
                     <div>
                       <div style={{ fontWeight: 800, fontSize: 18 }}>{invoice.invoice_number}</div>
                       <div style={{ marginTop: 4, opacity: 0.75 }}>
-                        {formatFrDate(invoice.invoice_date)} — {invoice.customer_name}
+                        {formatFrDate(invoice.invoice_date)} - {invoice.customer_name}
                       </div>
                       <div style={{ marginTop: 6 }}>
                         Total TTC : <b>{centsToEuros(invoice.total_ttc_cents)} €</b>
                       </div>
                       <div style={{ marginTop: 6 }}>
                         Statut : <b>{invoice.status}</b>
-                        {invoice.paid_at ? ` — payé le ${formatFrDate(invoice.paid_at)}` : ''}
+                        {invoice.paid_at ? ` - payé le ${formatFrDate(invoice.paid_at)}` : ''}
                       </div>
                       {invoice.issued_by && (
                         <div style={{ marginTop: 4, fontSize: 13, color: '#666' }}>
@@ -486,7 +486,7 @@ export default function InvoicesPage() {
                         opacity: 0.8,
                       }}
                     >
-                      Aucune transaction recette au même montant n’a été trouvée.
+                      Aucune transaction recette au même montant n'a été trouvée.
                     </div>
                   )}
 
@@ -511,7 +511,7 @@ export default function InvoicesPage() {
                             }}
                           >
                             <div>
-                              {formatFrDate(tx.tx_date)} — {tx.description} — <b>{centsToEuros(tx.amount_cents)} €</b>
+                              {formatFrDate(tx.tx_date)} - {tx.description} - <b>{centsToEuros(tx.amount_cents)} €</b>
                             </div>
 
                             <button

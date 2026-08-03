@@ -193,11 +193,11 @@ export default function ReceiptRequestsPage() {
                     </div>
                   )}
                   <div style={{ fontSize: 14, opacity: 0.7, marginTop: 4 }}>
-                    Demande: {new Date(r.created_at).toLocaleString()} — Statut: {r.status}
+                    Demande: {new Date(r.created_at).toLocaleString()} - Statut: {r.status}
                   </div>
                   {tx && (
                     <div style={{ fontSize: 14, opacity: 0.8, marginTop: 4 }}>
-                      {tx.tx_date} — {tx.kind === 'expense' ? 'Dépense' : 'Recette'} —{' '}
+                      {tx.tx_date} - {tx.kind === 'expense' ? 'Dépense' : 'Recette'} -{' '}
                       {tx.kind === 'expense' ? '-' : '+'}
                       {centsToEuros(tx.amount_cents)} €
                     </div>

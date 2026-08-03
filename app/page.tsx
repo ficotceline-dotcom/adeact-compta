@@ -8,6 +8,7 @@ type Budget = {
   name: string
   is_archived: boolean | null
   ordre: number
+  discord_webhook_url?: string | null
 }
 
 type FiscalYear = {
@@ -139,6 +140,7 @@ export default function HomePage() {
   const [selectedYear, setSelectedYear] = useState<string>('')
   const [lastTxDate, setLastTxDate] = useState<string | null>(null)
   const [openBudgetId, setOpenBudgetId] = useState<string | null>(null)
+  const [sendingDiscord, setSendingDiscord] = useState(false)
 
   useEffect(() => {
     load()
@@ -155,7 +157,7 @@ export default function HomePage() {
     ] = await Promise.all([
       supabase
         .from('budgets')
-        .select('id,name,is_archived,ordre')
+        .select('id,name,is_archived,ordre,discord_webhook_url')
         .eq('is_archived', false)
         .order('ordre'),
 
@@ -233,6 +235,60 @@ export default function HomePage() {
     }
   }, [allocations, selectedYear])
 
+  async function sendDiscordUpdates() {
+    const budgetsWithWebhook = budgets.filter((b) => b.discord_webhook_url)
+    if (budgetsWithWebhook.length === 0) {
+      alert('Aucun budget n\'a de webhook Discord configure. Rendez-vous dans Admin > Referentiel pour en ajouter.')
+      return
+    }
+
+    setSendingDiscord(true)
+    let sent = 0
+    let failed = 0
+
+    for (const budget of budgetsWithWebhook) {
+      const summary = getBudgetSummary(budget.id)
+      const fyLabel = fiscalYears.find((fy) => fy.id === selectedYear)?.year ?? ''
+
+      const sign = summary.result >= 0 ? '+' : ''
+      const message = [
+        `**Mise a jour budget — ${budget.name}** (${fyLabel})`,
+        ``,
+        `Recettes : **${centsToEuros(summary.income)} €**`,
+        `Depenses : **${centsToEuros(summary.expense)} €**`,
+        `Resultat : **${sign}${centsToEuros(summary.result)} €**`,
+        summary.budgetMissingReceipts > 0
+          ? `PJ manquantes : **${summary.budgetMissingReceipts}**`
+          : `PJ : tout est OK !`,
+      ].join('\n')
+
+      try {
+        const res = await fetch(budget.discord_webhook_url!, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: message }),
+        })
+        if (res.ok) {
+          sent++
+        } else {
+          failed++
+          console.error('Discord error for', budget.name, res.status, await res.text())
+        }
+      } catch (e) {
+        failed++
+        console.error('Discord fetch error for', budget.name, e)
+      }
+    }
+
+    setSendingDiscord(false)
+
+    if (failed === 0) {
+      alert(`Mise a jour Discord envoyee pour ${sent} budget(s) !`)
+    } else {
+      alert(`Envoye : ${sent}, Echecs : ${failed}. Verifiez les webhooks dans le referentiel.`)
+    }
+  }
+
   function getBudgetRows(budgetId: string) {
     return allocations.filter((a) => a.budget_id === budgetId)
   }
@@ -293,12 +349,31 @@ export default function HomePage() {
         Dernière date de transaction : <b>{formatFrDate(lastTxDate)}</b>
       </div>
 
-      <div style={{ marginTop: 25 }}>
-        <label>Année civile :</label>{' '}
+      <div style={{ marginTop: 14 }}>
+        <button
+          onClick={sendDiscordUpdates}
+          disabled={sendingDiscord}
+          style={{
+            padding: '10px 18px',
+            borderRadius: 10,
+            border: '1px solid #7c3aed',
+            background: sendingDiscord ? '#ede9fe' : '#7c3aed',
+            color: sendingDiscord ? '#7c3aed' : 'white',
+            fontWeight: 700,
+            cursor: sendingDiscord ? 'default' : 'pointer',
+            fontSize: 15,
+          }}
+        >
+          {sendingDiscord ? 'Envoi en cours...' : '📢 Envoyer mise a jour Discord'}
+        </button>
+      </div>
+
+      <div style={{ marginTop: 18 }}>
+        <label>Annee civile :</label>{' '}
         <select
           value={selectedYear}
           onChange={(e) => setSelectedYear(e.target.value)}
-          style={{ padding: 6 }}
+          style={{ padding: 8, borderRadius: 8, border: '1px solid #ccc' }}
         >
           {fiscalYears.map((fy) => (
             <option key={fy.id} value={fy.id}>

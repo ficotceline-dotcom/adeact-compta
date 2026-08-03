@@ -8,6 +8,7 @@ type Budget = {
   name: string
   ordre: number
   is_archived?: boolean
+  discord_webhook_url?: string | null
 }
 
 type Category = {
@@ -39,6 +40,8 @@ export default function AdminReferentielPage() {
   const [subcategories, setSubcategories] = useState<Subcategory[]>([])
 
   const [selectedBudgetId, setSelectedBudgetId] = useState('')
+  const [editingWebhook, setEditingWebhook] = useState<string>('')
+  const [savingWebhook, setSavingWebhook] = useState(false)
 
   const [newBudgetName, setNewBudgetName] = useState('')
   const [newCategoryNames, setNewCategoryNames] = useState({
@@ -65,7 +68,7 @@ export default function AdminReferentielPage() {
     const [budgetsRes, categoriesRes, subcategoriesRes] = await Promise.all([
       supabase
         .from('budgets')
-        .select('id,name,ordre,is_archived')
+        .select('id,name,ordre,is_archived,discord_webhook_url')
         .order('ordre'),
       supabase
         .from('categories')
@@ -98,7 +101,10 @@ export default function AdminReferentielPage() {
     setSubcategories((subcategoriesRes.data ?? []) as Subcategory[])
 
     if (loadedBudgets.length > 0) {
-      setSelectedBudgetId((prev) => prev || loadedBudgets[0].id)
+      const firstId = loadedBudgets[0].id
+      setSelectedBudgetId((prev) => prev || firstId)
+      const current = loadedBudgets.find((b) => b.id === (selectedBudgetId || firstId))
+      setEditingWebhook(current?.discord_webhook_url ?? '')
     }
 
     setLoading(false)
@@ -163,6 +169,31 @@ export default function AdminReferentielPage() {
       alert(`Erreur ajout budget : ${e?.message ?? 'inconnue'}`)
     } finally {
       setSaving(false)
+    }
+  }
+
+  // Sync editingWebhook when selected budget changes
+  useEffect(() => {
+    if (!selectedBudgetId) return
+    const current = budgets.find((b) => b.id === selectedBudgetId)
+    setEditingWebhook(current?.discord_webhook_url ?? '')
+  }, [selectedBudgetId, budgets])
+
+  async function saveWebhook() {
+    if (!selectedBudgetId) return
+    setSavingWebhook(true)
+    try {
+      const { error } = await supabase
+        .from('budgets')
+        .update({ discord_webhook_url: editingWebhook.trim() || null })
+        .eq('id', selectedBudgetId)
+      if (error) throw error
+      setMessage('✅ Webhook Discord enregistré')
+      await load()
+    } catch (e: any) {
+      alert('Erreur enregistrement webhook : ' + (e?.message ?? 'inconnue'))
+    } finally {
+      setSavingWebhook(false)
     }
   }
 
@@ -456,6 +487,36 @@ export default function AdminReferentielPage() {
 
         {message && <div style={messageStyle}>{message}</div>}
       </section>
+
+      {/* Webhook Discord par budget */}
+      {selectedBudgetId && (
+        <section style={{ ...topCardStyle, marginBottom: 22, background: '#f8f5ff', border: '1px solid #d8b4fe' }}>
+          <div style={labelStyle}>🔔 Webhook Discord pour ce budget</div>
+          <div style={{ fontSize: 13, color: '#555', marginBottom: 10 }}>
+            Ce webhook sera utilisé pour envoyer les mises a jour de budget dans le canal Discord correspondant.
+          </div>
+          <div style={rowStyle}>
+            <input
+              type="text"
+              value={editingWebhook}
+              onChange={(e) => setEditingWebhook(e.target.value)}
+              placeholder="https://discord.com/api/webhooks/..."
+              style={inputStyle}
+            />
+            <button onClick={saveWebhook} disabled={savingWebhook} style={primaryButtonStyle}>
+              {savingWebhook ? 'Enregistrement...' : 'Enregistrer'}
+            </button>
+          </div>
+          {editingWebhook && (
+            <button
+              onClick={() => { setEditingWebhook(''); }}
+              style={{ marginTop: 8, fontSize: 12, color: '#888', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+            >
+              Effacer le webhook
+            </button>
+          )}
+        </section>
+      )}
 
       <div style={columnsStyle}>
         <section style={incomeSectionStyle}>
