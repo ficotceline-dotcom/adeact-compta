@@ -120,9 +120,13 @@ export default function MissingReceiptsPage() {
     setProcessingId(row.id)
 
     try {
-      const { error } = await supabase
-        .from('receipt_requests')
-        .insert({ transaction_id: row.id, status: 'open' })
+      // Créer la demande en DB seulement si pas déjà ouverte
+      if (!openRequestIds.includes(row.id)) {
+        const { error } = await supabase
+          .from('receipt_requests')
+          .insert({ transaction_id: row.id, status: 'open' })
+        if (error) throw error
+      }
 
       if (error) throw error
 
@@ -147,10 +151,11 @@ export default function MissingReceiptsPage() {
       })
 
       if (!discordRes.ok) {
-        console.error('Discord error', discordRes.status, await discordRes.text())
-        alert('✅ Demande PJ créée, mais erreur Discord (' + discordRes.status + ')')
+        const errText = await discordRes.text()
+        console.error('Discord error', discordRes.status, errText)
+        alert('⚠️ Demande enregistrée, mais erreur Discord ' + discordRes.status + ' : ' + errText)
       } else {
-        alert('✅ Demande PJ créée + message Discord envoyé à ' + personName.trim())
+        alert('✅ Message Discord envoyé à ' + personName.trim())
       }
 
       setActiveRowId(null)
@@ -296,10 +301,10 @@ export default function MissingReceiptsPage() {
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   <button
                     onClick={() => openRequestPanel(row)}
-                    disabled={hasOpenRequest || processingId === row.id}
+                    disabled={processingId === row.id}
                     style={{ padding: '10px 12px' }}
                   >
-                    {hasOpenRequest ? 'Demande déjà envoyée' : 'Demander PJ'}
+                    {hasOpenRequest ? '🔁 Renvoyer sur Discord' : 'Demander PJ'}
                   </button>
 
                   <button
