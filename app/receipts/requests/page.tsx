@@ -19,6 +19,12 @@ type Tx = {
   description: string
   amount_cents: number
   receipt_status: string
+  member_id: string | null
+}
+
+type Member = {
+  id: string
+  full_name: string
 }
 
 function centsToEuros(cents: number) {
@@ -58,8 +64,10 @@ export default function ReceiptRequestsPage() {
   const [loading, setLoading] = useState(true)
   const [requests, setRequests] = useState<RequestRow[]>([])
   const [txById, setTxById] = useState<Record<string, Tx>>({})
+  const [members, setMembers] = useState<Member[]>([])
   const [filesByTx, setFilesByTx] = useState<Record<string, File | null>>({})
   const [filter, setFilter] = useState<'open' | 'fulfilled' | 'all'>('open')
+  const [filterMemberId, setFilterMemberId] = useState('')
 
   useEffect(() => {
     load()
@@ -105,8 +113,24 @@ export default function ReceiptRequestsPage() {
     ;((txs ?? []) as Tx[]).forEach((t) => (map[t.id] = t))
     setTxById(map)
 
+    const { data: memberData } = await supabase
+      .from('members')
+      .select('id,full_name')
+      .eq('is_active', true)
+      .order('full_name')
+    setMembers((memberData ?? []) as Member[])
+
     setLoading(false)
   }
+
+  function memberName(id: string | null) {
+    if (!id) return null
+    return members.find((m) => m.id === id)?.full_name ?? null
+  }
+
+  const filteredRequests = filterMemberId
+    ? requests.filter((r) => txById[r.transaction_id]?.member_id === filterMemberId)
+    : requests
 
   async function cancelRequest(reqId: string) {
     const { error } = await supabase
@@ -128,13 +152,22 @@ export default function ReceiptRequestsPage() {
     <main style={{ padding: 24, fontFamily: 'system-ui', maxWidth: 1000 }}>
       <h1 style={{ fontSize: 24, fontWeight: 700 }}>Demandes de justificatifs</h1>
 
-      <div style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <label>
-          Filtre:{' '}
+          Statut:{' '}
           <select value={filter} onChange={(e) => setFilter(e.target.value as any)} style={{ padding: 8 }}>
             <option value="open">Ouvertes</option>
             <option value="fulfilled">Clôturées</option>
             <option value="all">Toutes</option>
+          </select>
+        </label>
+        <label>
+          Membre:{' '}
+          <select value={filterMemberId} onChange={(e) => setFilterMemberId(e.target.value)} style={{ padding: 8 }}>
+            <option value="">Tous</option>
+            {members.map((m) => (
+              <option key={m.id} value={m.id}>{m.full_name}</option>
+            ))}
           </select>
         </label>
         <button onClick={load} style={{ padding: '10px 12px' }}>
@@ -142,10 +175,10 @@ export default function ReceiptRequestsPage() {
         </button>
       </div>
 
-      {requests.length === 0 && <p style={{ marginTop: 16 }}>Aucune demande.</p>}
+      {filteredRequests.length === 0 && <p style={{ marginTop: 16 }}>Aucune demande.</p>}
 
       <div style={{ marginTop: 16, display: 'grid', gap: 10 }}>
-        {requests.map((r) => {
+        {filteredRequests.map((r) => {
           const tx = txById[r.transaction_id]
           return (
             <div key={r.id} style={{ border: '1px solid #ddd', borderRadius: 10, padding: 12 }}>
@@ -154,6 +187,11 @@ export default function ReceiptRequestsPage() {
                   <div style={{ fontWeight: 700 }}>
                     {tx ? tx.description : 'Transaction inconnue'}
                   </div>
+                  {tx?.member_id && (
+                    <div style={{ fontSize: 13, color: '#555', marginTop: 2 }}>
+                      👤 {memberName(tx.member_id)}
+                    </div>
+                  )}
                   <div style={{ fontSize: 14, opacity: 0.7, marginTop: 4 }}>
                     Demande: {new Date(r.created_at).toLocaleString()} — Statut: {r.status}
                   </div>

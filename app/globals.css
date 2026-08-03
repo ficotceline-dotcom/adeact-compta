@@ -24,3 +24,45 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ── Responsive mobile ── */
+@media (max-width: 768px) {
+  /* Padding confortable sur tous les écrans */
+  main {
+    padding: 12px !important;
+    max-width: 100% !important;
+  }
+
+  /* Empêche l'auto-zoom iOS sur les champs de saisie */
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+
+  /* Grilles en colonnes → pile verticalement */
+  .alloc-row {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Boutons full-width dans les formulaires */
+  .form-actions {
+    flex-direction: column !important;
+  }
+  .form-actions a,
+  .form-actions button {
+    width: 100% !important;
+    text-align: center !important;
+    box-sizing: border-box;
+  }
+
+  /* Lignes de facture en pile */
+  .invoice-line-row {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Tableaux scrollables horizontalement */
+  table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}

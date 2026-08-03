@@ -169,6 +169,9 @@ export default function NewTransactionPage() {
   const [txDate, setTxDate] = useState(new Date().toISOString().slice(0, 10))
   const [description, setDescription] = useState('')
   const [amountInput, setAmountInput] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState('virement')
+  const [linkedMemberId, setLinkedMemberId] = useState('')
+  const [sendReceiptRequest, setSendReceiptRequest] = useState(false)
 
   const [receiptFile, setReceiptFile] = useState<File | null>(null)
   const [isCommunicationExpense, setIsCommunicationExpense] = useState(false)
@@ -438,6 +441,8 @@ export default function NewTransactionPage() {
           amount_cents: totalCents,
           receipt_status,
           fiscal_year_id: fy?.id ?? null,
+          payment_method: paymentMethod || null,
+          member_id: linkedMemberId || null,
         })
         .select('id')
         .single()
@@ -483,12 +488,22 @@ export default function NewTransactionPage() {
         await uploadReceipt(tx.id, receiptFile)
       }
 
+      if (kind === 'expense' && !receiptFile && sendReceiptRequest) {
+        await supabase.from('receipt_requests').insert({
+          transaction_id: tx.id,
+          status: 'open',
+        })
+      }
+
       alert('✅ Transaction enregistrée !')
 
       setKind('expense')
       setTxDate(new Date().toISOString().slice(0, 10))
       setDescription('')
       setAmountInput('')
+      setPaymentMethod('virement')
+      setLinkedMemberId('')
+      setSendReceiptRequest(false)
       setReceiptFile(null)
       setIsCommunicationExpense(false)
       setIsCotisationAssociative(false)
@@ -566,6 +581,21 @@ export default function NewTransactionPage() {
           />
         </label>
 
+        <label>
+          Moyen de paiement
+          <select
+            value={paymentMethod}
+            onChange={(e) => setPaymentMethod(e.target.value)}
+            style={{ display: 'block', width: '100%', padding: 8, marginTop: 6 }}
+          >
+            <option value="virement">Virement</option>
+            <option value="carte">Carte bancaire</option>
+            <option value="cheque">Chèque</option>
+            <option value="especes">Espèces</option>
+            <option value="autre">Autre</option>
+          </select>
+        </label>
+
         {kind === 'expense' && (
           <>
             <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -589,20 +619,46 @@ export default function NewTransactionPage() {
             </label>
 
             <label>
+              Membre concerné (optionnel)
+              <select
+                value={linkedMemberId}
+                onChange={(e) => setLinkedMemberId(e.target.value)}
+                style={{ display: ‘block’, width: ‘100%’, padding: 8, marginTop: 6 }}
+              >
+                <option value=””>— Aucun —</option>
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>{m.full_name}</option>
+                ))}
+              </select>
+            </label>
+
+            <label>
               Pièce jointe (optionnelle)
               <input
-                type="file"
-                accept=".pdf,.png,.jpg,.jpeg"
+                type=”file”
+                accept=”.pdf,.png,.jpg,.jpeg”
                 onChange={(e) => {
                   const file = e.target.files?.[0] ?? null
                   setReceiptFile(file)
+                  if (file) setSendReceiptRequest(false)
                 }}
-                style={{ display: 'block', width: '100%', padding: 8, marginTop: 6 }}
+                style={{ display: ‘block’, width: ‘100%’, padding: 8, marginTop: 6 }}
               />
               <div style={{ marginTop: 6, fontSize: 13, opacity: 0.75 }}>
                 Si tu n’ajoutes pas de fichier maintenant, la dépense sera automatiquement marquée “PJ manquante”.
               </div>
             </label>
+
+            {!receiptFile && (
+              <label style={{ display: ‘flex’, gap: 8, alignItems: ‘center’ }}>
+                <input
+                  type=”checkbox”
+                  checked={sendReceiptRequest}
+                  onChange={(e) => setSendReceiptRequest(e.target.checked)}
+                />
+                Envoyer une demande de PJ maintenant
+              </label>
+            )}
           </>
         )}
 
@@ -701,6 +757,7 @@ export default function NewTransactionPage() {
                 style={{ border: '1px solid #ddd', borderRadius: 10, padding: 12 }}
               >
                 <div
+                  className="alloc-row"
                   style={{
                     display: 'grid',
                     gap: 10,
@@ -825,7 +882,7 @@ export default function NewTransactionPage() {
         )}
       </div>
 
-      <div style={{ marginTop: 20, display: 'flex', gap: 10 }}>
+      <div className="form-actions" style={{ marginTop: 20, display: 'flex', gap: 10 }}>
         <button
           disabled={!canSubmit || saving}
           onClick={save}
