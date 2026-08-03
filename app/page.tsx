@@ -402,7 +402,7 @@ export default function HomePage() {
       const ecartTotal = totalReal - totalPrev
       const signTotal = ecartTotal >= 0 ? '+' : ''
       await sendEmbed(cat.discord_webhook_url, {
-        title: `${cat.name} — Prévisionnel vs Réalisé (${fyLabel})`,
+        title: `${budgets.find((b) => b.id === cat.budget_id)?.name ?? ''} — ${cat.name} — Prévisionnel vs Réalisé (${fyLabel})`,
         color: ecartTotal > 0 ? 0xe11d48 : 0x16a34a,
         fields,
         footer: { text: `Prévu : ${centsToEuros(totalPrev)} € | Réalisé : ${centsToEuros(totalReal)} € | Écart : ${signTotal}${centsToEuros(ecartTotal)} €` },
