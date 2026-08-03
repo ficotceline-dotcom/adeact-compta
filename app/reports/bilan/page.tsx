@@ -102,9 +102,20 @@ const filtered = ((data ?? []) as Row[]).filter(
         </button>
       </div>
 
-      <div style={{ marginTop: 16, padding: 12, border: '1px solid #eee', borderRadius: 12 }}>
+      <div style={{ marginTop: 16, padding: 16, border: '1px solid #eee', borderRadius: 12, display: 'grid', gap: 8 }}>
         <div>Total Actif : <b>{euros(totals.totalActif)} €</b></div>
         <div>Total Passif : <b>{euros(totals.totalPassif)} €</b></div>
+        <div style={{
+          marginTop: 4,
+          paddingTop: 10,
+          borderTop: '1px solid #eee',
+          fontWeight: 800,
+          fontSize: 18,
+          color: totals.totalActif - totals.totalPassif >= 0 ? '#16a34a' : '#dc2626',
+        }}>
+          {totals.totalActif - totals.totalPassif >= 0 ? '▲' : '▼'}{' '}
+          Différence : {totals.totalActif - totals.totalPassif >= 0 ? '+' : ''}{euros(totals.totalActif - totals.totalPassif)} €
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 20 }}>
