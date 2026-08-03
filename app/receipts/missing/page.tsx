@@ -25,7 +25,6 @@ type Member = {
 
 const DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/1533772402725621892/v1FlGgeJIbLvVny2y5e1jKhr_okuXc31l9sBxFozghPvqvHL5IO-IroquS2OApEPA8aT'
 
-
 function centsToEuros(cents: number) {
   return (cents / 100).toFixed(2)
 }
@@ -42,6 +41,10 @@ export default function MissingReceiptsPage() {
   const [openRequestIds, setOpenRequestIds] = useState<string[]>([])
   const [processingId, setProcessingId] = useState<string | null>(null)
   const [filterMemberId, setFilterMemberId] = useState('')
+
+  // Panneau "Demander PJ" inline
+  const [activeRowId, setActiveRowId] = useState<string | null>(null)
+  const [personName, setPersonName] = useState('')
 
   useEffect(() => {
     load()
@@ -102,56 +105,60 @@ export default function MissingReceiptsPage() {
     return members.find((m) => m.id === id)?.full_name ?? null
   }
 
-  async function sendDiscordNotification(row: MissingRow, name: string | null) {
-    const txUrl = `${window.location.origin}/transactions/${row.id}/edit`
-    const prenom = name ?? 'à la personne concernée'
-    const montant = centsToEuros(row.amount_cents)
-    const date = formatFrDate(row.tx_date)
-    const libelle = row.description || 'Sans libellé'
-
-    const message = [
-      `Bonjour **${prenom}**,`,
-      ``,
-      `Peux-tu ajouter le justificatif correspondant à cette transaction stp ?`,
-      ``,
-      `📄 **${libelle}** — ${date} — ${montant} €`,
-      `🔗 ${txUrl}`,
-    ].join('\n')
-
-    await fetch(DISCORD_WEBHOOK, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: message }),
-    })
+  function openRequestPanel(row: MissingRow) {
+    setActiveRowId(row.id)
+    // Pré-remplir avec le membre lié s'il existe
+    setPersonName(memberName(row.member_id) ?? '')
   }
 
-  async function requestReceipt(transactionId: string) {
-    if (openRequestIds.includes(transactionId)) {
-      alert('Une demande PJ est déjà ouverte pour cette transaction.')
+  async function confirmRequest(row: MissingRow) {
+    if (!personName.trim()) {
+      alert('Merci d\'indiquer le nom de la personne.')
       return
     }
 
-    setProcessingId(transactionId)
+    setProcessingId(row.id)
 
     try {
       const { error } = await supabase
         .from('receipt_requests')
-        .insert({
-          transaction_id: transactionId,
-          status: 'open',
-        })
+        .insert({ transaction_id: row.id, status: 'open' })
 
       if (error) throw error
 
-      const row = rows.find((r) => r.id === transactionId)!
-      const name = memberName(row.member_id)
-      await sendDiscordNotification(row, name)
+      const txUrl = `${window.location.origin}/transactions/${row.id}/edit`
+      const montant = centsToEuros(row.amount_cents)
+      const date = formatFrDate(row.tx_date)
+      const libelle = row.description || 'Sans libellé'
 
-      alert('✅ Demande PJ créée + message Discord envoyé')
+      const message = [
+        `Bonjour **${personName.trim()}**,`,
+        ``,
+        `Peux-tu ajouter le justificatif correspondant à cette transaction stp ?`,
+        ``,
+        `📄 **${libelle}** — ${date} — ${montant} €`,
+        `🔗 ${txUrl}`,
+      ].join('\n')
+
+      const discordRes = await fetch(DISCORD_WEBHOOK, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: message }),
+      })
+
+      if (!discordRes.ok) {
+        console.error('Discord error', discordRes.status, await discordRes.text())
+        alert('✅ Demande PJ créée, mais erreur Discord (' + discordRes.status + ')')
+      } else {
+        alert('✅ Demande PJ créée + message Discord envoyé à ' + personName.trim())
+      }
+
+      setActiveRowId(null)
+      setPersonName('')
       await load()
     } catch (e: any) {
       console.error(e)
-      alert(`Erreur demande PJ : ${e?.message ?? 'inconnue'}`)
+      alert(`Erreur : ${e?.message ?? 'inconnue'}`)
     } finally {
       setProcessingId(null)
     }
@@ -210,12 +217,13 @@ export default function MissingReceiptsPage() {
         {filteredRows.map((row) => {
           const hasOpenRequest = openRequestIds.includes(row.id)
           const name = memberName(row.member_id)
+          const isActive = activeRowId === row.id
 
           return (
             <div
               key={row.id}
               style={{
-                border: '1px solid #ddd',
+                border: isActive ? '2px solid #3b82f6' : '1px solid #ddd',
                 borderRadius: 12,
                 padding: 16,
                 background: 'white',
@@ -243,32 +251,71 @@ export default function MissingReceiptsPage() {
                 </div>
               )}
 
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <button
-                  onClick={() => requestReceipt(row.id)}
-                  disabled={hasOpenRequest || processingId === row.id}
-                  style={{ padding: '10px 12px' }}
-                >
-                  {hasOpenRequest
-                    ? 'Demande déjà envoyée'
-                    : processingId === row.id
-                    ? 'Traitement…'
-                    : 'Demander PJ'}
-                </button>
+              {/* Panneau de demande inline */}
+              {isActive && (
+                <div style={{
+                  marginTop: 4,
+                  padding: 14,
+                  background: '#f0f7ff',
+                  borderRadius: 10,
+                  display: 'grid',
+                  gap: 10,
+                }}>
+                  <label style={{ fontWeight: 600, fontSize: 14 }}>
+                    À qui envoyer la demande ?
+                    <input
+                      value={personName}
+                      onChange={(e) => setPersonName(e.target.value)}
+                      placeholder="Prénom Nom"
+                      autoFocus
+                      style={{ display: 'block', width: '100%', padding: 10, marginTop: 6, borderRadius: 8, border: '1px solid #93c5fd', fontSize: 15 }}
+                    />
+                  </label>
+                  <div style={{ fontSize: 13, color: '#555', fontStyle: 'italic' }}>
+                    Un message Discord sera envoyé à cette personne avec le lien de la transaction.
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={() => confirmRequest(row)}
+                      disabled={processingId === row.id}
+                      style={{ padding: '10px 16px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      {processingId === row.id ? 'Envoi…' : '📨 Envoyer la demande'}
+                    </button>
+                    <button
+                      onClick={() => { setActiveRowId(null); setPersonName('') }}
+                      style={{ padding: '10px 14px', border: '1px solid #ddd', borderRadius: 8, background: 'white', cursor: 'pointer' }}
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </div>
+              )}
 
-                <button
-                  onClick={() => abandonReceipt(row.id)}
-                  disabled={processingId === row.id}
-                  style={{
-                    padding: '10px 12px',
-                    border: '1px solid #ddd',
-                    borderRadius: 8,
-                    background: '#fffaf0',
-                  }}
-                >
-                  Abandon de PJ
-                </button>
-              </div>
+              {!isActive && (
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => openRequestPanel(row)}
+                    disabled={hasOpenRequest || processingId === row.id}
+                    style={{ padding: '10px 12px' }}
+                  >
+                    {hasOpenRequest ? 'Demande déjà envoyée' : 'Demander PJ'}
+                  </button>
+
+                  <button
+                    onClick={() => abandonReceipt(row.id)}
+                    disabled={processingId === row.id}
+                    style={{
+                      padding: '10px 12px',
+                      border: '1px solid #ddd',
+                      borderRadius: 8,
+                      background: '#fffaf0',
+                    }}
+                  >
+                    Abandon de PJ
+                  </button>
+                </div>
+              )}
             </div>
           )
         })}
