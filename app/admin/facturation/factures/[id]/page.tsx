@@ -14,6 +14,7 @@ type Invoice = {
   status: string
   total_ttc_cents: number
   paid_at: string | null
+  issued_by: string | null
 }
 
 type InvoiceLine = {
@@ -136,6 +137,11 @@ export default function Page() {
               Statut : {invoice.status}
               {invoice.paid_at ? ` (payée le ${formatDate(invoice.paid_at)})` : ''}
             </p>
+            {invoice.issued_by && (
+              <p style={{ fontSize: 13, color: '#666', marginTop: 4 }}>
+                Émis par : {invoice.issued_by}
+              </p>
+            )}
           </div>
         </div>
 

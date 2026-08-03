@@ -16,6 +16,7 @@ type Invoice = {
   paid_at: string | null
   paid_manually: boolean
   created_at: string
+  issued_by: string | null
 }
 
 type InvoiceLineDraft = {
@@ -80,10 +81,11 @@ export default function InvoicesPage() {
   const [processingId, setProcessingId] = useState<string | null>(null)
 
   const [invoices, setInvoices] = useState<Invoice[]>([])
-  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10))
+  const [invoiceDate] = useState(new Date().toISOString().slice(0, 10))
   const [customerName, setCustomerName] = useState('')
   const [customerAddress, setCustomerAddress] = useState('')
   const [subject, setSubject] = useState('')
+  const [issuedBy, setIssuedBy] = useState('')
   const [lines, setLines] = useState<InvoiceLineDraft[]>([
     { localId: uid(), label: '', quantity: '1', unitPriceTTC: '' },
   ])
@@ -143,6 +145,11 @@ export default function InvoicesPage() {
       return
     }
 
+    if (!issuedBy.trim()) {
+      alert('Merci de renseigner qui émet la facture.')
+      return
+    }
+
     for (const line of lines) {
       if (!line.label.trim()) {
         alert('Merci de renseigner toutes les lignes.')
@@ -170,6 +177,7 @@ export default function InvoicesPage() {
           subject: subject.trim() || null,
           status: 'issued',
           total_ttc_cents: total,
+          issued_by: issuedBy.trim(),
         })
         .select('id')
         .single()
@@ -193,10 +201,10 @@ export default function InvoicesPage() {
       if (linesErr) throw linesErr
 
       alert('✅ Facture créée')
-      setInvoiceDate(new Date().toISOString().slice(0, 10))
       setCustomerName('')
       setCustomerAddress('')
       setSubject('')
+      setIssuedBy('')
       setLines([{ localId: uid(), label: '', quantity: '1', unitPriceTTC: '' }])
 
       await load()
@@ -293,12 +301,16 @@ export default function InvoicesPage() {
         <h2 style={{ fontSize: 20, fontWeight: 800 }}>Créer une facture</h2>
 
         <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
+          <div style={{ padding: '8px 10px', background: '#f5f5f5', borderRadius: 8, fontSize: 14, color: '#555' }}>
+            📅 Date d'émission : <b>{formatFrDate(invoiceDate)}</b> (automatique, non modifiable)
+          </div>
+
           <label>
-            Date
+            Émis par
             <input
-              type="date"
-              value={invoiceDate}
-              onChange={(e) => setInvoiceDate(e.target.value)}
+              value={issuedBy}
+              onChange={(e) => setIssuedBy(e.target.value)}
+              placeholder="Prénom Nom de l'émetteur"
               style={{ display: 'block', width: '100%', padding: 8, marginTop: 6 }}
             />
           </label>
@@ -426,6 +438,11 @@ export default function InvoicesPage() {
                         Statut : <b>{invoice.status}</b>
                         {invoice.paid_at ? ` — payé le ${formatFrDate(invoice.paid_at)}` : ''}
                       </div>
+                      {invoice.issued_by && (
+                        <div style={{ marginTop: 4, fontSize: 13, color: '#666' }}>
+                          Émis par : <b>{invoice.issued_by}</b>
+                        </div>
+                      )}
                     </div>
 
                     <div style={{ display: 'grid', gap: 8, minWidth: 220 }}>
