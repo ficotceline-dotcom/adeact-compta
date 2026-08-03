@@ -226,7 +226,7 @@ export default function ControleIntegritePage() {
           amount_cents: tx.amount_cents,
           allocated_cents: allocated,
           missing_cents: missing,
-          details: 'Cette transaction n’est liée à aucun budget, aucune catégorie, aucun CR et aucun bilan.',
+          details: "Cette transaction n'est liée à aucun budget, aucune catégorie, aucun CR et aucun bilan.",
         })
         continue
       }
@@ -257,7 +257,7 @@ export default function ControleIntegritePage() {
           amount_cents: tx.amount_cents,
           allocated_cents: allocated,
           missing_cents: 0,
-          details: `La transaction est rattachée à l’exercice ${selectedYear.year}, mais sa date est hors période.`,
+          details: `La transaction est rattachée à l'exercice ${selectedYear.year}, mais sa date est hors période.`,
         })
       }
 
@@ -278,7 +278,7 @@ export default function ControleIntegritePage() {
           amount_cents: tx.amount_cents,
           allocated_cents: allocated,
           missing_cents: 0,
-          details: 'Au moins une ligne d’affectation n’a pas de budget projet.',
+          details: "Au moins une ligne d'affectation n'a pas de budget projet.",
         })
       }
 
@@ -293,7 +293,7 @@ export default function ControleIntegritePage() {
           amount_cents: tx.amount_cents,
           allocated_cents: allocated,
           missing_cents: 0,
-          details: 'Au moins une ligne d’affectation n’a pas de catégorie.',
+          details: "Au moins une ligne d'affectation n'a pas de catégorie.",
         })
       }
 
@@ -301,15 +301,15 @@ export default function ControleIntegritePage() {
         const firstBadAlloc = txAllocs.find((a) => !a.poste_cr)
         issues.push({
           id: `${tx.id}-missing-cr`,
-          level: ‘error’,
-          type: ‘Compte de résultat manquant’,
+          level: 'error',
+          type: 'Compte de résultat manquant',
           transactionId: tx.id,
           txDate: tx.tx_date,
-          description: tx.description ?? ‘Sans libellé’,
+          description: tx.description ?? 'Sans libellé',
           amount_cents: tx.amount_cents,
           allocated_cents: allocated,
           missing_cents: 0,
-          details: ‘Au moins une ligne d’affectation ne remonte pas dans le compte de résultat.’,
+          details: "Au moins une ligne d'affectation ne remonte pas dans le compte de résultat.",
           subcategoryId: firstBadAlloc?.subcategory_id ?? null,
         })
       }
@@ -318,15 +318,15 @@ export default function ControleIntegritePage() {
         const firstBadAlloc = txAllocs.find((a) => !a.poste_bilan)
         issues.push({
           id: `${tx.id}-missing-bilan`,
-          level: ‘error’,
-          type: ‘Bilan manquant’,
+          level: 'error',
+          type: 'Bilan manquant',
           transactionId: tx.id,
           txDate: tx.tx_date,
-          description: tx.description ?? ‘Sans libellé’,
+          description: tx.description ?? 'Sans libellé',
           amount_cents: tx.amount_cents,
           allocated_cents: allocated,
           missing_cents: 0,
-          details: ‘Au moins une ligne d’affectation ne remonte pas dans le bilan.’,
+          details: "Au moins une ligne d'affectation ne remonte pas dans le bilan.",
           subcategoryId: firstBadAlloc?.subcategory_id ?? null,
         })
       }
@@ -380,7 +380,7 @@ export default function ControleIntegritePage() {
     <main style={{ padding: 24, fontFamily: 'system-ui', maxWidth: 1400 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start' }}>
         <div>
-          <h1 style={{ fontSize: 26, fontWeight: 900, margin: 0 }}>Contrôle d’intégrité comptable</h1>
+          <h1 style={{ fontSize: 26, fontWeight: 900, margin: 0 }}>Contrôle d'intégrité comptable</h1>
           <p style={{ marginTop: 8, color: '#64748b' }}>
             Vérifie que chaque transaction est bien affectée aux budgets, au compte de résultat et au bilan.
           </p>
