@@ -238,41 +238,84 @@ export default function HomePage() {
   async function sendDiscordUpdates() {
     const budgetsWithWebhook = budgets.filter((b) => b.discord_webhook_url)
     if (budgetsWithWebhook.length === 0) {
-      alert('Aucun budget n\'a de webhook Discord configure. Rendez-vous dans Admin > Referentiel pour en ajouter.')
+      alert("Aucun budget n'a de webhook Discord configure. Rendez-vous dans Admin > Referentiel pour en ajouter.")
       return
     }
 
     setSendingDiscord(true)
     let sent = 0
     let failed = 0
+    const fyLabel = fiscalYears.find((fy) => fy.id === selectedYear)?.year ?? ''
 
     for (const budget of budgetsWithWebhook) {
-      const summary = getBudgetSummary(budget.id)
-      const fyLabel = fiscalYears.find((fy) => fy.id === selectedYear)?.year ?? ''
+      // Filtrer les allocations par budget ET par annee selectionnee
+      const rows = allocations.filter((a) => {
+        if (a.budget_id !== budget.id) return false
+        const tx = firstObj(a.transaction)
+        if (!tx) return false
+        if (selectedYear && tx.fiscal_year_id !== selectedYear) return false
+        return tx.kind === 'expense'
+      })
 
-      const sign = summary.result >= 0 ? '+' : ''
-      const message = [
-        `**Mise a jour budget — ${budget.name}** (${fyLabel})`,
-        ``,
-        `Recettes : **${centsToEuros(summary.income)} €**`,
-        `Depenses : **${centsToEuros(summary.expense)} €**`,
-        `Resultat : **${sign}${centsToEuros(summary.result)} €**`,
-        summary.budgetMissingReceipts > 0
-          ? `PJ manquantes : **${summary.budgetMissingReceipts}**`
-          : `PJ : tout est OK !`,
-      ].join('\n')
+      // Grouper par categorie > sous-categorie
+      const categoryMap = new Map<string, { total: number; subs: Map<string, number> }>()
+      for (const row of rows) {
+        const catName = firstObj(row.category)?.name ?? 'Sans categorie'
+        const subName = firstObj(row.subcategory)?.name ?? 'Sans sous-categorie'
+        if (!categoryMap.has(catName)) {
+          categoryMap.set(catName, { total: 0, subs: new Map() })
+        }
+        const entry = categoryMap.get(catName)!
+        entry.total += row.amount_cents
+        entry.subs.set(subName, (entry.subs.get(subName) ?? 0) + row.amount_cents)
+      }
+
+      const sortedCategories = Array.from(categoryMap.entries()).sort((a, b) =>
+        a[0].localeCompare(b[0])
+      )
+
+      const totalDepenses = sortedCategories.reduce((sum, [, v]) => sum + v.total, 0)
+
+      // Construire les fields Discord (max 1024 chars par field)
+      const fields = sortedCategories.map(([catName, data]) => {
+        const lines: string[] = []
+        Array.from(data.subs.entries())
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .forEach(([subName, amount]) => {
+            lines.push(`${subName} : ${centsToEuros(amount)} €`)
+          })
+        lines.push(`**Total : ${centsToEuros(data.total)} €**`)
+        return {
+          name: catName,
+          value: lines.join('\n') || 'Aucune depense',
+          inline: false,
+        }
+      })
+
+      if (fields.length === 0) {
+        fields.push({ name: 'Aucune depense', value: 'Pas de depenses enregistrees pour cette periode.', inline: false })
+      }
+
+      const embed = {
+        title: `Depenses — ${budget.name} (${fyLabel})`,
+        color: 0xe11d48, // rouge pour depenses
+        fields,
+        footer: { text: `Total depenses : ${centsToEuros(totalDepenses)} €` },
+        timestamp: new Date().toISOString(),
+      }
 
       try {
         const res = await fetch(budget.discord_webhook_url!, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: message }),
+          body: JSON.stringify({ embeds: [embed] }),
         })
         if (res.ok) {
           sent++
         } else {
+          const errText = await res.text()
           failed++
-          console.error('Discord error for', budget.name, res.status, await res.text())
+          console.error('Discord error for', budget.name, res.status, errText)
         }
       } catch (e) {
         failed++
