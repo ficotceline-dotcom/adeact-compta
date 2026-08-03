@@ -493,6 +493,26 @@ export default function NewTransactionPage() {
           transaction_id: tx.id,
           status: 'open',
         })
+
+        const member = members.find((m) => m.id === linkedMemberId)
+        const prenom = member?.full_name ?? 'à la personne concernée'
+        const txUrl = `${window.location.origin}/transactions/${tx.id}/edit`
+        const montant = (totalCents / 100).toFixed(2)
+
+        const message = [
+          `Bonjour **${prenom}**,`,
+          ``,
+          `Peux-tu ajouter le justificatif correspondant à cette transaction stp ?`,
+          ``,
+          `📄 **${finalDescription}** — ${txDate} — ${montant} €`,
+          `🔗 ${txUrl}`,
+        ].join('\n')
+
+        await fetch('https://discord.com/api/webhooks/1533772402725621892/v1FlGgeJIbLvVny2y5e1jKhr_okuXc31l9sBxFozghPvqvHL5IO-IroquS2OApEPA8aT', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: message }),
+        })
       }
 
       alert('✅ Transaction enregistrée !')

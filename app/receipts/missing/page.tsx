@@ -23,6 +23,9 @@ type Member = {
   full_name: string
 }
 
+const DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/1533772402725621892/v1FlGgeJIbLvVny2y5e1jKhr_okuXc31l9sBxFozghPvqvHL5IO-IroquS2OApEPA8aT'
+
+
 function centsToEuros(cents: number) {
   return (cents / 100).toFixed(2)
 }
@@ -99,6 +102,29 @@ export default function MissingReceiptsPage() {
     return members.find((m) => m.id === id)?.full_name ?? null
   }
 
+  async function sendDiscordNotification(row: MissingRow, name: string | null) {
+    const txUrl = `${window.location.origin}/transactions/${row.id}/edit`
+    const prenom = name ?? 'à la personne concernée'
+    const montant = centsToEuros(row.amount_cents)
+    const date = formatFrDate(row.tx_date)
+    const libelle = row.description || 'Sans libellé'
+
+    const message = [
+      `Bonjour **${prenom}**,`,
+      ``,
+      `Peux-tu ajouter le justificatif correspondant à cette transaction stp ?`,
+      ``,
+      `📄 **${libelle}** — ${date} — ${montant} €`,
+      `🔗 ${txUrl}`,
+    ].join('\n')
+
+    await fetch(DISCORD_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: message }),
+    })
+  }
+
   async function requestReceipt(transactionId: string) {
     if (openRequestIds.includes(transactionId)) {
       alert('Une demande PJ est déjà ouverte pour cette transaction.')
@@ -117,7 +143,11 @@ export default function MissingReceiptsPage() {
 
       if (error) throw error
 
-      alert('✅ Demande PJ créée')
+      const row = rows.find((r) => r.id === transactionId)!
+      const name = memberName(row.member_id)
+      await sendDiscordNotification(row, name)
+
+      alert('✅ Demande PJ créée + message Discord envoyé')
       await load()
     } catch (e: any) {
       console.error(e)
