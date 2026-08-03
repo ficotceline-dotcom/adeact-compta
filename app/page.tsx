@@ -326,10 +326,9 @@ export default function HomePage() {
           const prev = prevByCat.get(catId) ?? 0
           const name = realByCat.get(catId)?.name ?? '?'
           const ecart = real - prev
-          const sign = ecart >= 0 ? '+' : ''
           return {
             name,
-            value: `Prévu : ${centsToEuros(prev)} €\nRéalisé : ${centsToEuros(real)} €\nÉcart : **${sign}${centsToEuros(ecart)} €**`,
+            value: `Budget : ${centsToEuros(prev)} €\nDépensé : ${centsToEuros(real)} €\nSolde : **${centsToEuros(prev - real)} €**`,
             inline: true,
           }
         })
@@ -340,12 +339,11 @@ export default function HomePage() {
       }
 
       const ecartTotal = totalReal - totalPrev
-      const signTotal = ecartTotal >= 0 ? '+' : ''
       await sendEmbed(budget.discord_webhook_url!, {
         title: `Budget ${budget.name} — Dépenses (${fyLabel})`,
         color: 0xe11d48,
         fields,
-        footer: { text: `Prévu : ${centsToEuros(totalPrev)} € | Réalisé : ${centsToEuros(totalReal)} € | Écart : ${signTotal}${centsToEuros(ecartTotal)} €` },
+        footer: { text: `Budget : ${centsToEuros(totalPrev)} € | Dépensé : ${centsToEuros(totalReal)} € | Solde : ${centsToEuros(totalPrev - totalReal)} €` },
         timestamp: new Date().toISOString(),
       })
     }
@@ -386,10 +384,9 @@ export default function HomePage() {
           const prev = prevBySub.get(subId) ?? 0
           const name = realBySub.get(subId)?.name ?? 'Sans sous-categorie'
           const ecart = real - prev
-          const sign = ecart >= 0 ? '+' : ''
           return {
             name,
-            value: `Prévu : ${centsToEuros(prev)} €\nRéalisé : ${centsToEuros(real)} €\nÉcart : **${sign}${centsToEuros(ecart)} €**`,
+            value: `Budget : ${centsToEuros(prev)} €\nDépensé : ${centsToEuros(real)} €\nSolde : **${centsToEuros(prev - real)} €**`,
             inline: true,
           }
         })
@@ -400,12 +397,11 @@ export default function HomePage() {
       }
 
       const ecartTotal = totalReal - totalPrev
-      const signTotal = ecartTotal >= 0 ? '+' : ''
       await sendEmbed(cat.discord_webhook_url, {
         title: `${budgets.find((b) => b.id === cat.budget_id)?.name ?? ''} — ${cat.name} — Prévisionnel vs Réalisé (${fyLabel})`,
         color: ecartTotal > 0 ? 0xe11d48 : 0x16a34a,
         fields,
-        footer: { text: `Prévu : ${centsToEuros(totalPrev)} € | Réalisé : ${centsToEuros(totalReal)} € | Écart : ${signTotal}${centsToEuros(ecartTotal)} €` },
+        footer: { text: `Budget : ${centsToEuros(totalPrev)} € | Dépensé : ${centsToEuros(totalReal)} € | Solde : ${centsToEuros(totalPrev - totalReal)} €` },
         timestamp: new Date().toISOString(),
       })
     }

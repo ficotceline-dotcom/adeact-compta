@@ -12,6 +12,19 @@ export function useUserPermissions() {
 
   useEffect(() => {
     load()
+
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session) {
+        load()
+      } else {
+        setPermissions([])
+        setLoading(false)
+      }
+    })
+
+    return () => {
+      sub.subscription.unsubscribe()
+    }
   }, [])
 
   async function load() {
