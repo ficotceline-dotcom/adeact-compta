@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 type Category = {
   id: string
   name: string
+  kind: 'income' | 'expense'
 }
 
 type Subcategory = {
@@ -43,7 +44,7 @@ export default function MappingPage() {
   }, [highlight, subcategories])
 
   async function load() {
-    const { data: c } = await supabase.from('categories').select('id,name')
+    const { data: c } = await supabase.from('categories').select('id,name,kind')
     const { data: s } = await supabase.from('subcategories').select('id,name,category_id')
     const { data: m } = await supabase.from('subcategory_mapping').select('*')
     const { data: crp } = await supabase.from('cr_postes').select('label').order('label')
@@ -96,6 +97,7 @@ export default function MappingPage() {
         <thead>
           <tr>
             <th>Catégorie</th>
+            <th>Type</th>
             <th>Sous-catégorie</th>
             <th>Poste CR</th>
             <th>Poste Bilan</th>
@@ -121,6 +123,19 @@ export default function MappingPage() {
                 } : undefined}
               >
                 <td>{cat?.name}</td>
+
+                <td>
+                  <span style={{
+                    padding: '2px 8px',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    background: cat?.kind === 'income' ? '#dcfce7' : '#fee2e2',
+                    color: cat?.kind === 'income' ? '#15803d' : '#b91c1c',
+                  }}>
+                    {cat?.kind === 'income' ? 'Recette' : 'Charge'}
+                  </span>
+                </td>
 
                 <td>{s.name}</td>
 
