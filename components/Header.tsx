@@ -49,10 +49,7 @@ const adminLinks: NavLink[] = [
   { href: '/settings/mapping', label: 'Mapping', permission: 'mapping' },
   { href: '/admin/referentiel', label: 'Admin référentiel', permission: 'admin_referentiel' },
 
-  {
-    href: '/admin/controle-integrite',
-    label: 'Contrôle intégrité',
-  },
+  { href: '/admin/controle-integrite', label: 'Contrôle intégrité', permission: 'controle_integrite' },
 
   { href: '/admin/previsionnel', label: 'Admin prévisionnel', permission: 'admin_forecast' },
   { href: '/admin/evolutions', label: 'Admin évolutions', permission: 'admin_evolutions' },

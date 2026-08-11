@@ -153,6 +153,25 @@ export default function ReimbursementRequestPage() {
 
       if (insertErr) throw insertErr
 
+      // Notification Discord remboursements
+      const webhookUrl = process.env.NEXT_PUBLIC_DISCORD_REIMBURSEMENT_WEBHOOK_URL
+      if (webhookUrl) {
+        const euros = (amountCents / 100).toFixed(2).replace('.', ',')
+        const budgetName = budgets.find((b) => b.id === budgetId)?.name ?? ''
+        const message = [
+          `💸 **Nouvelle demande de remboursement**`,
+          `👤 **${requesterName.trim()}**`,
+          `💶 Montant : **${euros} €**`,
+          `📁 Budget : ${budgetName}`,
+        ].join('\n')
+
+        await fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: message }),
+        }).catch(() => {})
+      }
+
       alert('✅ Demande envoyée')
 
       setRequesterName('')

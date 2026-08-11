@@ -27,8 +27,26 @@ type Member = {
   full_name: string
 }
 
+type PendingReceipt = {
+  id: string
+  submitter_name: string
+  store_name: string
+  amount_cents: number
+  file_path: string
+  created_at: string
+  linked_transaction_id: string | null
+}
+
 function centsToEuros(cents: number) {
   return (cents / 100).toFixed(2)
+}
+
+function eurosToCents(value: string): number {
+  const normalized = value.replace(',', '.').trim()
+  if (!normalized) return 0
+  const num = Number(normalized)
+  if (!Number.isFinite(num)) return 0
+  return Math.round(num * 100)
 }
 
 async function uploadReceipt(txId: string, file: File) {
@@ -69,8 +87,18 @@ export default function ReceiptRequestsPage() {
   const [filter, setFilter] = useState<'open' | 'fulfilled' | 'all'>('open')
   const [filterMemberId, setFilterMemberId] = useState('')
 
+  // PJ anticipées
+  const [pendingReceipts, setPendingReceipts] = useState<PendingReceipt[]>([])
+  const [showPreUploadForm, setShowPreUploadForm] = useState(false)
+  const [preSubmitterName, setPreSubmitterName] = useState('')
+  const [preStoreName, setPreStoreName] = useState('')
+  const [preAmountInput, setPreAmountInput] = useState('')
+  const [preFile, setPreFile] = useState<File | null>(null)
+  const [preSaving, setPreSaving] = useState(false)
+
   useEffect(() => {
     load()
+    loadPendingReceipts()
   }, [filter])
 
   async function load() {
@@ -123,6 +151,61 @@ export default function ReceiptRequestsPage() {
     setLoading(false)
   }
 
+  async function loadPendingReceipts() {
+    const { data, error } = await supabase
+      .from('pending_receipts')
+      .select('*')
+      .is('linked_transaction_id', null)
+      .order('created_at', { ascending: false })
+
+    if (!error) setPendingReceipts((data ?? []) as PendingReceipt[])
+  }
+
+  async function submitPreUpload() {
+    if (!preSubmitterName.trim()) { alert('Merci d\'indiquer ton prénom et nom.'); return }
+    if (!preStoreName.trim()) { alert('Merci d\'indiquer le magasin / fournisseur.'); return }
+    const amountCents = eurosToCents(preAmountInput)
+    if (amountCents <= 0) { alert('Merci d\'indiquer un montant valide.'); return }
+    if (!preFile) { alert('Merci de sélectionner un fichier.'); return }
+
+    setPreSaving(true)
+    try {
+      const safeName = preFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const path = `pending/${Date.now()}_${safeName}`
+
+      const { error: upErr } = await supabase.storage.from('receipts').upload(path, preFile, { upsert: true })
+      if (upErr) throw upErr
+
+      const { error: insertErr } = await supabase.from('pending_receipts').insert({
+        submitter_name: preSubmitterName.trim(),
+        store_name: preStoreName.trim(),
+        amount_cents: amountCents,
+        file_path: path,
+      })
+      if (insertErr) throw insertErr
+
+      alert('✅ Justificatif déposé ! Il sera proposé lors de la saisie de la dépense correspondante.')
+      setPreSubmitterName('')
+      setPreStoreName('')
+      setPreAmountInput('')
+      setPreFile(null)
+      setShowPreUploadForm(false)
+      loadPendingReceipts()
+    } catch (e: any) {
+      console.error(e)
+      alert(`Erreur : ${e?.message ?? 'inconnue'}`)
+    } finally {
+      setPreSaving(false)
+    }
+  }
+
+  async function deletePendingReceipt(id: string, filePath: string) {
+    if (!confirm('Supprimer ce justificatif en attente ?')) return
+    await supabase.storage.from('receipts').remove([filePath])
+    await supabase.from('pending_receipts').delete().eq('id', id)
+    loadPendingReceipts()
+  }
+
   function memberName(id: string | null) {
     if (!id) return null
     return members.find((m) => m.id === id)?.full_name ?? null
@@ -152,7 +235,138 @@ export default function ReceiptRequestsPage() {
     <main style={{ padding: 24, fontFamily: 'system-ui', maxWidth: 1000 }}>
       <h1 style={{ fontSize: 24, fontWeight: 700 }}>Demandes de justificatifs</h1>
 
-      <div style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+      {/* ── Section : Déposer une PJ à l'avance ── */}
+      <div style={{
+        marginTop: 20,
+        border: '1px solid #e0e7ff',
+        borderLeft: '4px solid #6366f1',
+        borderRadius: 10,
+        padding: 16,
+        background: '#f5f3ff',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: '#4338ca' }}>
+              📎 Déposer un justificatif à l'avance
+            </div>
+            <div style={{ fontSize: 13, color: '#6366f1', marginTop: 2 }}>
+              Tu as une facture mais la dépense n'a pas encore été saisie ? Dépose-la ici.
+            </div>
+          </div>
+          <button
+            onClick={() => setShowPreUploadForm((v) => !v)}
+            style={{
+              padding: '8px 14px',
+              borderRadius: 8,
+              border: '1px solid #6366f1',
+              background: 'white',
+              color: '#4338ca',
+              fontWeight: 700,
+              cursor: 'pointer',
+              fontSize: 13,
+            }}
+          >
+            {showPreUploadForm ? 'Fermer' : '+ Nouveau dépôt'}
+          </button>
+        </div>
+
+        {showPreUploadForm && (
+          <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
+            <label style={{ fontSize: 13 }}>
+              Ton prénom et nom *
+              <input
+                value={preSubmitterName}
+                onChange={(e) => setPreSubmitterName(e.target.value)}
+                placeholder="Ex : Marie Dupont"
+                style={{ display: 'block', width: '100%', padding: 8, marginTop: 4, borderRadius: 6, border: '1px solid #c7d2fe' }}
+              />
+            </label>
+            <label style={{ fontSize: 13 }}>
+              Magasin / fournisseur *
+              <input
+                value={preStoreName}
+                onChange={(e) => setPreStoreName(e.target.value)}
+                placeholder="Ex : Cultura, Amazon, Brico Dépôt…"
+                style={{ display: 'block', width: '100%', padding: 8, marginTop: 4, borderRadius: 6, border: '1px solid #c7d2fe' }}
+              />
+            </label>
+            <label style={{ fontSize: 13 }}>
+              Montant de la dépense (€) *
+              <input
+                value={preAmountInput}
+                onChange={(e) => setPreAmountInput(e.target.value)}
+                placeholder="Ex : 24,90"
+                style={{ display: 'block', width: 160, padding: 8, marginTop: 4, borderRadius: 6, border: '1px solid #c7d2fe' }}
+              />
+            </label>
+            <label style={{ fontSize: 13 }}>
+              Fichier justificatif (PDF, image) *
+              <input
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg"
+                onChange={(e) => setPreFile(e.target.files?.[0] ?? null)}
+                style={{ display: 'block', marginTop: 4 }}
+              />
+            </label>
+            <button
+              onClick={submitPreUpload}
+              disabled={preSaving}
+              style={{
+                padding: '10px 16px',
+                width: 200,
+                borderRadius: 8,
+                border: 'none',
+                background: '#6366f1',
+                color: 'white',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              {preSaving ? 'Dépôt…' : 'Déposer le justificatif'}
+            </button>
+          </div>
+        )}
+
+        {/* PJ en attente non liées */}
+        {pendingReceipts.length > 0 && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, color: '#4338ca', marginBottom: 6 }}>
+              {pendingReceipts.length} justificatif(s) en attente de liaison :
+            </div>
+            <div style={{ display: 'grid', gap: 6 }}>
+              {pendingReceipts.map((pr) => (
+                <div key={pr.id} style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: 'white',
+                  border: '1px solid #c7d2fe',
+                  borderRadius: 8,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                }}>
+                  <span>
+                    <b>{pr.submitter_name}</b> — {pr.store_name} —{' '}
+                    <b>{centsToEuros(pr.amount_cents)} €</b>{' '}
+                    <span style={{ color: '#9ca3af' }}>
+                      ({new Date(pr.created_at).toLocaleDateString('fr-FR')})
+                    </span>
+                  </span>
+                  <button
+                    onClick={() => deletePendingReceipt(pr.id, pr.file_path)}
+                    style={{ marginLeft: 12, color: '#c8202e', border: 'none', background: 'none', cursor: 'pointer', fontSize: 12 }}
+                  >
+                    Supprimer
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Filtres ── */}
+      <div style={{ display: 'flex', gap: 10, marginTop: 20, alignItems: 'center', flexWrap: 'wrap' }}>
         <label>
           Statut:{' '}
           <select value={filter} onChange={(e) => setFilter(e.target.value as any)} style={{ padding: 8 }}>
@@ -242,8 +456,6 @@ export default function ReceiptRequestsPage() {
                   >
                     Uploader & clôturer
                   </button>
-
-                 
                 </div>
               </div>
             </div>

@@ -5,6 +5,14 @@ import { supabase } from '@/lib/supabase'
 
 type TxKind = 'income' | 'expense'
 
+type PendingReceipt = {
+  id: string
+  submitter_name: string
+  store_name: string
+  amount_cents: number
+  file_path: string
+}
+
 type Budget = { id: string; name: string }
 type Category = { id: string; name: string; kind: TxKind; budget_id: string }
 type Subcategory = { id: string; name: string; category_id: string }
@@ -174,6 +182,8 @@ export default function NewTransactionPage() {
   const [sendReceiptRequest, setSendReceiptRequest] = useState(false)
 
   const [receiptFile, setReceiptFile] = useState<File | null>(null)
+  const [matchingPendingReceipts, setMatchingPendingReceipts] = useState<PendingReceipt[]>([])
+  const [selectedPendingReceiptId, setSelectedPendingReceiptId] = useState<string | null>(null)
   const [isCommunicationExpense, setIsCommunicationExpense] = useState(false)
 
   const [isCotisationAssociative, setIsCotisationAssociative] = useState(false)
@@ -235,6 +245,19 @@ export default function NewTransactionPage() {
   }, [])
 
   const totalCents = useMemo(() => eurosToCents(amountInput), [amountInput])
+
+  // Cherche les PJ anticipées non liées avec le même montant
+  useEffect(() => {
+    if (kind !== 'expense') { setMatchingPendingReceipts([]); return }
+    const cents = eurosToCents(amountInput)
+    if (cents <= 0) { setMatchingPendingReceipts([]); return }
+    supabase
+      .from('pending_receipts')
+      .select('id,submitter_name,store_name,amount_cents,file_path')
+      .eq('amount_cents', cents)
+      .is('linked_transaction_id', null)
+      .then(({ data }) => setMatchingPendingReceipts((data ?? []) as PendingReceipt[]))
+  }, [amountInput, kind])
 
   const availableRegistrations = useMemo(() => {
     return memberRegistrations
@@ -421,7 +444,7 @@ export default function NewTransactionPage() {
 
       const receipt_status =
         kind === 'expense'
-          ? receiptFile
+          ? (receiptFile || selectedPendingReceiptId)
             ? 'PJ fournie'
             : 'PJ manquante'
           : 'PJ fournie'
@@ -488,7 +511,23 @@ export default function NewTransactionPage() {
         await uploadReceipt(tx.id, receiptFile)
       }
 
-      if (kind === 'expense' && !receiptFile && sendReceiptRequest) {
+      // Lier une PJ anticipée si l'utilisateur en a sélectionné une
+      if (kind === 'expense' && selectedPendingReceiptId && !receiptFile) {
+        const pr = matchingPendingReceipts.find((p) => p.id === selectedPendingReceiptId)
+        if (pr) {
+          await supabase
+            .from('pending_receipts')
+            .update({ linked_transaction_id: tx.id })
+            .eq('id', pr.id)
+
+          await supabase
+            .from('transactions')
+            .update({ receipt_path: pr.file_path, receipt_uploaded_at: new Date().toISOString() })
+            .eq('id', tx.id)
+        }
+      }
+
+      if (kind === 'expense' && !receiptFile && !selectedPendingReceiptId && sendReceiptRequest) {
         await supabase.from('receipt_requests').insert({
           transaction_id: tx.id,
           status: 'open',
@@ -528,6 +567,8 @@ export default function NewTransactionPage() {
       setLinkedMemberId('')
       setSendReceiptRequest(false)
       setReceiptFile(null)
+      setSelectedPendingReceiptId(null)
+      setMatchingPendingReceipts([])
       setIsCommunicationExpense(false)
       setIsCotisationAssociative(false)
       setSelectedRegistrationId('')
@@ -655,6 +696,60 @@ export default function NewTransactionPage() {
               </select>
             </label>
 
+            {/* Suggestion de PJ anticipées */}
+            {matchingPendingReceipts.length > 0 && !receiptFile && (
+              <div style={{
+                border: '1px solid #6366f1',
+                borderRadius: 10,
+                padding: 12,
+                background: '#f5f3ff',
+              }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: '#4338ca', marginBottom: 8 }}>
+                  📎 {matchingPendingReceipts.length} justificatif(s) en attente pour ce montant :
+                </div>
+                {matchingPendingReceipts.map((pr) => (
+                  <div key={pr.id} style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    background: selectedPendingReceiptId === pr.id ? '#e0e7ff' : 'white',
+                    border: `1px solid ${selectedPendingReceiptId === pr.id ? '#6366f1' : '#c7d2fe'}`,
+                    borderRadius: 8,
+                    padding: '8px 12px',
+                    marginBottom: 6,
+                    fontSize: 13,
+                  }}>
+                    <span>
+                      <b>{pr.submitter_name}</b> — {pr.store_name} — {(pr.amount_cents / 100).toFixed(2)} €
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPendingReceiptId(
+                        selectedPendingReceiptId === pr.id ? null : pr.id
+                      )}
+                      style={{
+                        padding: '5px 10px',
+                        borderRadius: 6,
+                        border: '1px solid #6366f1',
+                        background: selectedPendingReceiptId === pr.id ? '#6366f1' : 'white',
+                        color: selectedPendingReceiptId === pr.id ? 'white' : '#4338ca',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                        fontSize: 12,
+                      }}
+                    >
+                      {selectedPendingReceiptId === pr.id ? '✓ Sélectionné' : 'Utiliser ce justificatif'}
+                    </button>
+                  </div>
+                ))}
+                {selectedPendingReceiptId && (
+                  <div style={{ fontSize: 12, color: '#4338ca', marginTop: 4 }}>
+                    Ce justificatif sera automatiquement lié à la transaction à la sauvegarde.
+                  </div>
+                )}
+              </div>
+            )}
+
             <label>
               Pièce jointe (optionnelle)
               <input
@@ -663,7 +758,10 @@ export default function NewTransactionPage() {
                 onChange={(e) => {
                   const file = e.target.files?.[0] ?? null
                   setReceiptFile(file)
-                  if (file) setSendReceiptRequest(false)
+                  if (file) {
+                    setSendReceiptRequest(false)
+                    setSelectedPendingReceiptId(null)
+                  }
                 }}
                 style={{ display: 'block', width: '100%', padding: 8, marginTop: 6 }}
               />
@@ -672,7 +770,7 @@ export default function NewTransactionPage() {
               </div>
             </label>
 
-            {!receiptFile && (
+            {!receiptFile && !selectedPendingReceiptId && (
               <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <input
                   type="checkbox"

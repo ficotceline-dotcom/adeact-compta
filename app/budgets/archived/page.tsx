@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 
 type Budget = {
@@ -153,6 +154,24 @@ export default function ArchivedBudgetsPage() {
               </div>
 
               <div style={{ display: 'flex', gap: 8 }}>
+                <Link
+                  href={`/budgets/archived/${budget.id}`}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: 8,
+                    border: '1px solid #e5e7eb',
+                    background: 'white',
+                    color: '#374151',
+                    fontWeight: 600,
+                    fontSize: 13,
+                    textDecoration: 'none',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  👁 Voir le détail
+                </Link>
+
                 <button
                   onClick={() => reopenBudget(budget.id, budget.name)}
                   disabled={reopeningId === budget.id}
