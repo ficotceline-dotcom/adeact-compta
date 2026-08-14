@@ -374,7 +374,12 @@ export default function HomePage() {
         prevBySub.set(key, (prevBySub.get(key) ?? 0) + f.amount_cents)
       }
 
-      const allSubIds = new Set([...realBySub.keys(), ...prevBySub.keys()])
+      // N'inclure '__none__' (sans sous-catégorie) que si des transactions réelles
+      // n'ont pas de sous-catégorie. Les prévisionnels orphelins sont dans le footer.
+      const allSubIds = new Set([
+        ...realBySub.keys(),
+        ...Array.from(prevBySub.keys()).filter((k) => k !== '__none__' || realBySub.has('__none__')),
+      ])
       const totalReal = Array.from(realBySub.values()).reduce((s, v) => s + v.amount, 0)
       const totalPrev = Array.from(prevBySub.values()).reduce((s, v) => s + v, 0)
 
