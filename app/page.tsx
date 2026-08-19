@@ -263,6 +263,13 @@ export default function HomePage() {
     let failed = 0
     const fyLabel = 'Total budget'
 
+    // Carte des noms de sous-catégories depuis toutes les allocations
+    const subNameMap = new Map<string, string>()
+    for (const a of allocations) {
+      const sub = firstObj(a.subcategory)
+      if (sub?.id) subNameMap.set(sub.id, sub.name)
+    }
+
     // Charger le previsionnel une seule fois
     const { data: forecastData } = await supabase
       .from('budget_forecasts')
@@ -374,12 +381,7 @@ export default function HomePage() {
         prevBySub.set(key, (prevBySub.get(key) ?? 0) + f.amount_cents)
       }
 
-      // N'inclure '__none__' (sans sous-catégorie) que si des transactions réelles
-      // n'ont pas de sous-catégorie. Les prévisionnels orphelins sont dans le footer.
-      const allSubIds = new Set([
-        ...realBySub.keys(),
-        ...Array.from(prevBySub.keys()).filter((k) => k !== '__none__' || realBySub.has('__none__')),
-      ])
+      const allSubIds = new Set([...realBySub.keys(), ...prevBySub.keys()])
       const totalReal = Array.from(realBySub.values()).reduce((s, v) => s + v.amount, 0)
       const totalPrev = Array.from(prevBySub.values()).reduce((s, v) => s + v, 0)
 
@@ -387,14 +389,16 @@ export default function HomePage() {
         .map((subId) => {
           const real = realBySub.get(subId)?.amount ?? 0
           const prev = prevBySub.get(subId) ?? 0
-          const name = realBySub.get(subId)?.name ?? 'Sans sous-categorie'
-          const ecart = real - prev
+          // Résolution du nom : dépenses réelles > allocations connues > ignorer
+          const name = realBySub.get(subId)?.name ?? subNameMap.get(subId) ?? null
+          if (!name) return null // sous-catégorie inconnue (prévisionnel orphelin ou __none__ sans dépense)
           return {
             name,
             value: `Budget : ${centsToEuros(prev)} €\nDépensé : ${centsToEuros(real)} €\nSolde : **${centsToEuros(prev - real)} €**`,
             inline: true,
           }
         })
+        .filter((f): f is { name: string; value: string; inline: boolean } => f !== null)
         .sort((a, b) => a.name.localeCompare(b.name))
 
       if (fields.length === 0) {
