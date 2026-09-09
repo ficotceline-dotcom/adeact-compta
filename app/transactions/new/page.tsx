@@ -50,6 +50,12 @@ type Member = {
   phone: string | null
 }
 
+type ReceiptContact = {
+  id: string
+  name: string
+  discord_handle: string | null
+}
+
 type MemberRegistration = {
   id: string
   member_id: string
@@ -180,6 +186,8 @@ export default function NewTransactionPage() {
   const [paymentMethod, setPaymentMethod] = useState('virement')
   const [linkedMemberId, setLinkedMemberId] = useState('')
   const [sendReceiptRequest, setSendReceiptRequest] = useState(false)
+  const [receiptContacts, setReceiptContacts] = useState<ReceiptContact[]>([])
+  const [receiptContactId, setReceiptContactId] = useState('')
 
   const [receiptFile, setReceiptFile] = useState<File | null>(null)
   const [matchingPendingReceipts, setMatchingPendingReceipts] = useState<PendingReceipt[]>([])
@@ -207,6 +215,7 @@ export default function NewTransactionPage() {
         { data: sy, error: e6 },
         { data: m, error: e7 },
         { data: regs, error: e8 },
+        { data: rcData },
       ] = await Promise.all([
         supabase.from('budgets').select('id,name').eq('is_archived', false).order('name'),
         supabase.from('categories').select('id,name,kind,budget_id'),
@@ -216,6 +225,7 @@ export default function NewTransactionPage() {
         supabase.from('school_years').select('*').eq('is_active', true).order('ordre'),
         supabase.from('members').select('id,full_name,email,phone').eq('is_active', true).order('ordre').order('full_name'),
         supabase.from('member_school_registrations').select('*'),
+        supabase.from('receipt_contacts').select('id,name,discord_handle').order('ordre'),
       ])
 
       if (e1 || e2 || e3 || e4 || e5 || e6 || e7 || e8) {
@@ -235,6 +245,7 @@ export default function NewTransactionPage() {
       setSchoolYears(schoolYearRows)
       setMembers((m ?? []) as Member[])
       setMemberRegistrations((regs ?? []) as MemberRegistration[])
+      setReceiptContacts((rcData ?? []) as ReceiptContact[])
 
       if (schoolYearRows.length > 0) {
         setSelectedSchoolYearId(schoolYearRows[0].id)
@@ -528,33 +539,47 @@ export default function NewTransactionPage() {
       }
 
       if (kind === 'expense' && !receiptFile && !selectedPendingReceiptId && sendReceiptRequest) {
+        // Enregistrer qui doit fournir la facture
+        if (receiptContactId) {
+          await supabase
+            .from('transactions')
+            .update({ receipt_contact_id: receiptContactId })
+            .eq('id', tx.id)
+        }
+
         await supabase.from('receipt_requests').insert({
           transaction_id: tx.id,
           status: 'open',
         })
 
-        const member = members.find((m) => m.id === linkedMemberId)
-        const prenom = member?.full_name ?? 'à la personne concernée'
-        const txUrl = `${window.location.origin}/transactions/${tx.id}/edit`
-        const montant = (totalCents / 100).toFixed(2)
+        const contact = receiptContacts.find((c) => c.id === receiptContactId)
+        const mention = contact?.discord_handle
+          ? `${contact.discord_handle}`
+          : contact?.name
+          ? `**${contact.name}**`
+          : '**@concerné(e)**'
+
+        const txUrl = `${window.location.origin}/receipts/requests`
+        const montant = (totalCents / 100).toFixed(2).replace('.', ',')
 
         const message = [
-          `Bonjour **${prenom}**,`,
+          `📄 Facture attendue — ${mention}`,
           ``,
-          `Peux-tu ajouter le justificatif correspondant à cette transaction stp ?`,
+          `**${finalDescription}** · ${txDate} · ${montant} €`,
+          `👉 ${txUrl}`,
           ``,
-          `📄 **${finalDescription}** - ${txDate} - ${montant} €`,
-          `🔗 ${txUrl}`,
+          `Mets un ✅ sur ce message quand tu l'as uploadée, merci !`,
         ].join('\n')
 
-        const webhookUrl = process.env.NEXT_PUBLIC_DISCORD_WEBHOOK_URL
-        if (!webhookUrl) return
-
-        await fetch(webhookUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: message }),
-        })
+        const webhookUrl = process.env.NEXT_PUBLIC_DISCORD_RECEIPT_WEBHOOK_URL
+          || process.env.NEXT_PUBLIC_DISCORD_WEBHOOK_URL
+        if (webhookUrl) {
+          await fetch(webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: message }),
+          }).catch(() => {})
+        }
       }
 
       alert('✅ Transaction enregistrée !')
@@ -566,6 +591,7 @@ export default function NewTransactionPage() {
       setPaymentMethod('virement')
       setLinkedMemberId('')
       setSendReceiptRequest(false)
+      setReceiptContactId('')
       setReceiptFile(null)
       setSelectedPendingReceiptId(null)
       setMatchingPendingReceipts([])
@@ -771,14 +797,34 @@ export default function NewTransactionPage() {
             </label>
 
             {!receiptFile && !selectedPendingReceiptId && (
-              <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input
-                  type="checkbox"
-                  checked={sendReceiptRequest}
-                  onChange={(e) => setSendReceiptRequest(e.target.checked)}
-                />
-                Envoyer une demande de PJ maintenant
-              </label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={sendReceiptRequest}
+                    onChange={(e) => setSendReceiptRequest(e.target.checked)}
+                  />
+                  Envoyer une demande de PJ maintenant
+                </label>
+
+                {sendReceiptRequest && (
+                  <div style={{ marginLeft: 24 }}>
+                    <label style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>
+                      Qui doit envoyer la facture ?
+                    </label>
+                    <select
+                      value={receiptContactId}
+                      onChange={(e) => setReceiptContactId(e.target.value)}
+                      style={{ padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, minWidth: 220 }}
+                    >
+                      <option value="">— Sélectionner —</option>
+                      {receiptContacts.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
             )}
           </>
         )}

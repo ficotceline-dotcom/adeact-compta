@@ -20,6 +20,7 @@ type Tx = {
   amount_cents: number
   receipt_status: string
   member_id: string | null
+  receipt_contact_id: string | null
 }
 
 type Member = {
@@ -87,6 +88,8 @@ export default function ReceiptRequestsPage() {
   const [filter, setFilter] = useState<'open' | 'fulfilled' | 'all'>('open')
   const [filterMemberId, setFilterMemberId] = useState('')
 
+  const [sendingBatch, setSendingBatch] = useState(false)
+
   // PJ anticipées
   const [pendingReceipts, setPendingReceipts] = useState<PendingReceipt[]>([])
   const [showPreUploadForm, setShowPreUploadForm] = useState(false)
@@ -149,6 +152,60 @@ export default function ReceiptRequestsPage() {
     setMembers((memberData ?? []) as Member[])
 
     setLoading(false)
+  }
+
+  async function sendBatchNotifications() {
+    const webhookUrl = process.env.NEXT_PUBLIC_DISCORD_RECEIPT_WEBHOOK_URL
+      || process.env.NEXT_PUBLIC_DISCORD_WEBHOOK_URL
+    if (!webhookUrl) { alert('Aucun webhook Discord configuré.'); return }
+
+    const openRequests = requests.filter((r) => r.status === 'open')
+    if (openRequests.length === 0) { alert('Aucune demande ouverte à notifier.'); return }
+
+    setSendingBatch(true)
+    let sent = 0
+
+    // Charger les contacts pour les @mentions
+    const { data: contacts } = await supabase
+      .from('receipt_contacts')
+      .select('id,name,discord_handle')
+    const contactMap = new Map((contacts ?? []).map((c: any) => [c.id, c]))
+
+    for (const req of openRequests) {
+      const tx = txById[req.transaction_id]
+      if (!tx) continue
+
+      const contact = tx.receipt_contact_id ? contactMap.get(tx.receipt_contact_id) : null
+      const mention = contact?.discord_handle
+        ? contact.discord_handle
+        : contact?.name
+        ? `**${contact.name}**`
+        : '**@concerné(e)**'
+
+      const montant = (Math.abs(tx.amount_cents) / 100).toFixed(2).replace('.', ',')
+      const txUrl = `${window.location.origin}/receipts/requests`
+
+      const message = [
+        `📄 Facture en attente — ${mention}`,
+        ``,
+        `**${tx.description}** · ${tx.tx_date} · ${montant} €`,
+        `👉 ${txUrl}`,
+        ``,
+        `Mets un ✅ sur ce message quand tu l'as uploadée, merci !`,
+      ].join('\n')
+
+      await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: message }),
+      }).catch(() => {})
+      sent++
+      // Petite pause pour ne pas saturer Discord
+      await new Promise((r) => setTimeout(r, 500))
+    }
+
+    setSendingBatch(false)
+    alert(`${sent} notification(s) envoyée(s) sur Discord.`)
   }
 
   async function loadPendingReceipts() {
@@ -386,6 +443,13 @@ export default function ReceiptRequestsPage() {
         </label>
         <button onClick={load} style={{ padding: '10px 12px' }}>
           Rafraîchir
+        </button>
+        <button
+          onClick={sendBatchNotifications}
+          disabled={sendingBatch}
+          style={{ padding: '10px 14px', background: '#5865f2', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600 }}
+        >
+          {sendingBatch ? 'Envoi…' : '🔔 Relancer tout sur Discord'}
         </button>
       </div>
 

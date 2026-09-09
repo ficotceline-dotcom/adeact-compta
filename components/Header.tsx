@@ -48,6 +48,7 @@ const adminLinks: NavLink[] = [
   { href: '/admin/membres', label: 'Membres', permission: 'admin_members' },
   { href: '/settings/mapping', label: 'Mapping', permission: 'mapping' },
   { href: '/admin/referentiel', label: 'Admin référentiel', permission: 'admin_referentiel' },
+  { href: '/admin/contacts-factures', label: 'Contacts factures', permission: 'admin_referentiel' },
 
   { href: '/admin/controle-integrite', label: 'Contrôle intégrité', permission: 'controle_integrite' },
 
