@@ -42,7 +42,6 @@ const billingLinks: NavLink[] = [
 
 const adminLinks: NavLink[] = [
   { href: '/admin/reimbursements', label: 'Gestion remboursements', permission: 'admin_reimbursements' },
-  { href: '/receipts/missing', label: 'PJ manquantes', permission: 'missing_receipts' },
   { href: '/admin/rescrits', label: 'Rescrits à fournir', permission: 'admin_tax_rulings' },
   { href: '/admin/exports', label: 'Exports', permission: 'exports' },
   { href: '/admin/membres', label: 'Membres', permission: 'admin_members' },
