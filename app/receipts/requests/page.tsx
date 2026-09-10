@@ -80,7 +80,7 @@ export default function ReceiptRequestsPage() {
   const [receiptContacts, setReceiptContacts] = useState<{ id: string; name: string; discord_handle: string | null }[]>([])
   const [filesByTx, setFilesByTx] = useState<Record<string, File | null>>({})
   const [filter, setFilter] = useState<'manquante' | 'abandonnee' | 'all'>('manquante')
-  const [filterMemberId, setFilterMemberId] = useState('')
+  const [filterContactId, setFilterContactId] = useState('')
   const [sendingBatch, setSendingBatch] = useState(false)
   const [editingDesc, setEditingDesc] = useState<string | null>(null) // tx.id en cours d'édition
   const [editingValue, setEditingValue] = useState('')
@@ -275,8 +275,10 @@ export default function ReceiptRequestsPage() {
     return id ? (members.find((m) => m.id === id)?.full_name ?? null) : null
   }
 
-  const filteredTxs = filterMemberId
-    ? txs.filter((t) => t.member_id === filterMemberId)
+  const filteredTxs = filterContactId === '__vide__'
+    ? txs.filter((t) => !t.receipt_contact_id)
+    : filterContactId
+    ? txs.filter((t) => t.receipt_contact_id === filterContactId)
     : txs
 
   if (loading) return <main style={{ padding: 24 }}>Chargement…</main>
@@ -369,10 +371,11 @@ export default function ReceiptRequestsPage() {
           </select>
         </label>
         <label>
-          Membre:{' '}
-          <select value={filterMemberId} onChange={(e) => setFilterMemberId(e.target.value)} style={{ padding: 8 }}>
+          Contact:{' '}
+          <select value={filterContactId} onChange={(e) => setFilterContactId(e.target.value)} style={{ padding: 8 }}>
             <option value="">Tous</option>
-            {members.map((m) => <option key={m.id} value={m.id}>{m.full_name}</option>)}
+            <option value="__vide__">— Sans contact —</option>
+            {receiptContacts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </label>
         <button onClick={load} style={{ padding: '10px 12px' }}>Rafraîchir</button>
