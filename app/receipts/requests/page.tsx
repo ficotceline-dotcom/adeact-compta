@@ -82,6 +82,8 @@ export default function ReceiptRequestsPage() {
   const [filter, setFilter] = useState<'manquante' | 'abandonnee' | 'all'>('manquante')
   const [filterMemberId, setFilterMemberId] = useState('')
   const [sendingBatch, setSendingBatch] = useState(false)
+  const [editingDesc, setEditingDesc] = useState<string | null>(null) // tx.id en cours d'édition
+  const [editingValue, setEditingValue] = useState('')
 
   const { permissions } = useUserPermissions()
   const isAdmin = permissions.includes('admin_reimbursements')
@@ -145,6 +147,14 @@ export default function ReceiptRequestsPage() {
     setReceiptContacts((contactData ?? []) as { id: string; name: string; discord_handle: string | null }[])
 
     setLoading(false)
+  }
+
+  async function saveDescription(txId: string, newDesc: string) {
+    const trimmed = newDesc.trim()
+    if (!trimmed) return
+    await supabase.from('transactions').update({ description: trimmed }).eq('id', txId)
+    setTxs((prev) => prev.map((t) => t.id === txId ? { ...t, description: trimmed } : t))
+    setEditingDesc(null)
   }
 
   async function updateContact(transactionId: string, contactId: string) {
@@ -394,7 +404,35 @@ export default function ReceiptRequestsPage() {
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15 }}>{tx.description}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {editingDesc === tx.id ? (
+                      <input
+                        autoFocus
+                        value={editingValue}
+                        onChange={(e) => setEditingValue(e.target.value)}
+                        onBlur={() => saveDescription(tx.id, editingValue)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveDescription(tx.id, editingValue)
+                          if (e.key === 'Escape') setEditingDesc(null)
+                        }}
+                        style={{ fontWeight: 700, fontSize: 15, padding: '3px 8px', borderRadius: 6, border: '1px solid #6366f1', flex: 1 }}
+                      />
+                    ) : (
+                      <span
+                        style={{ fontWeight: 700, fontSize: 15, cursor: 'text', borderBottom: '1px dashed #d1d5db' }}
+                        title="Cliquer pour modifier le libellé"
+                        onClick={() => { setEditingDesc(tx.id); setEditingValue(tx.description) }}
+                      >
+                        {tx.description}
+                      </span>
+                    )}
+                    <a
+                      href={`/transactions/${tx.id}/edit`}
+                      style={{ fontSize: 12, color: '#6366f1', textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}
+                    >
+                      Voir →
+                    </a>
+                  </div>
 
                   <div style={{ fontSize: 13, color: '#374151', marginTop: 4 }}>
                     {tx.tx_date} · {(Math.abs(tx.amount_cents) / 100).toFixed(2).replace('.', ',')} €
