@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { compressFile } from '@/lib/compressImage'
 
 type TxKind = 'income' | 'expense'
 
@@ -87,12 +88,13 @@ function findFiscalYear(date: string, fiscalYears: FiscalYear[]) {
 }
 
 async function uploadReceipt(txId: string, file: File) {
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+  const compressed = await compressFile(file)
+  const safeName = compressed.name.replace(/[^a-zA-Z0-9._-]/g, '_')
   const path = `${txId}/${Date.now()}_${safeName}`
 
   const { error: upErr } = await supabase.storage
     .from('receipts')
-    .upload(path, file, { upsert: true })
+    .upload(path, compressed, { upsert: true })
 
   if (upErr) throw upErr
 
@@ -706,20 +708,6 @@ export default function NewTransactionPage() {
                 }}
               />
               Dépense de communication
-            </label>
-
-            <label>
-              Membre concerné (optionnel)
-              <select
-                value={linkedMemberId}
-                onChange={(e) => setLinkedMemberId(e.target.value)}
-                style={{ display: 'block', width: '100%', padding: 8, marginTop: 6 }}
-              >
-                <option value="">- Aucun -</option>
-                {members.map((m) => (
-                  <option key={m.id} value={m.id}>{m.full_name}</option>
-                ))}
-              </select>
             </label>
 
             {/* Suggestion de PJ anticipées */}

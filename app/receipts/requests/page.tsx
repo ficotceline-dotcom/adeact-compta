@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { compressFile } from '@/lib/compressImage'
 
 type RequestRow = {
   id: string
@@ -51,10 +52,11 @@ function eurosToCents(value: string): number {
 }
 
 async function uploadReceipt(txId: string, file: File) {
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+  const compressed = await compressFile(file)
+  const safeName = compressed.name.replace(/[^a-zA-Z0-9._-]/g, '_')
   const path = `${txId}/${Date.now()}_${safeName}`
 
-  const { error: upErr } = await supabase.storage.from('receipts').upload(path, file, {
+  const { error: upErr } = await supabase.storage.from('receipts').upload(path, compressed, {
     upsert: true,
   })
   if (upErr) throw upErr
@@ -89,6 +91,7 @@ export default function ReceiptRequestsPage() {
   const [filterMemberId, setFilterMemberId] = useState('')
 
   const [sendingBatch, setSendingBatch] = useState(false)
+  const [receiptContacts, setReceiptContacts] = useState<{ id: string; name: string; discord_handle: string | null }[]>([])
 
   // PJ anticipées
   const [pendingReceipts, setPendingReceipts] = useState<PendingReceipt[]>([])
@@ -150,6 +153,12 @@ export default function ReceiptRequestsPage() {
       .eq('is_active', true)
       .order('full_name')
     setMembers((memberData ?? []) as Member[])
+
+    const { data: contactData } = await supabase
+      .from('receipt_contacts')
+      .select('id,name,discord_handle')
+      .order('ordre')
+    setReceiptContacts((contactData ?? []) as { id: string; name: string; discord_handle: string | null }[])
 
     setLoading(false)
   }
@@ -227,10 +236,11 @@ export default function ReceiptRequestsPage() {
 
     setPreSaving(true)
     try {
-      const safeName = preFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const compressedPre = await compressFile(preFile)
+      const safeName = compressedPre.name.replace(/[^a-zA-Z0-9._-]/g, '_')
       const path = `pending/${Date.now()}_${safeName}`
 
-      const { error: upErr } = await supabase.storage.from('receipts').upload(path, preFile, { upsert: true })
+      const { error: upErr } = await supabase.storage.from('receipts').upload(path, compressedPre, { upsert: true })
       if (upErr) throw upErr
 
       const { error: insertErr } = await supabase.from('pending_receipts').insert({
@@ -271,6 +281,19 @@ export default function ReceiptRequestsPage() {
   const filteredRequests = filterMemberId
     ? requests.filter((r) => txById[r.transaction_id]?.member_id === filterMemberId)
     : requests
+
+  async function updateContact(transactionId: string, contactId: string) {
+    const value = contactId || null
+    const { error } = await supabase
+      .from('transactions')
+      .update({ receipt_contact_id: value })
+      .eq('id', transactionId)
+    if (error) { console.error(error); return }
+    setTxById((prev) => ({
+      ...prev,
+      [transactionId]: { ...prev[transactionId], receipt_contact_id: value },
+    }))
+  }
 
   async function cancelRequest(reqId: string) {
     const { error } = await supabase
@@ -468,6 +491,21 @@ export default function ReceiptRequestsPage() {
                   {tx?.member_id && (
                     <div style={{ fontSize: 13, color: '#555', marginTop: 2 }}>
                       👤 {memberName(tx.member_id)}
+                    </div>
+                  )}
+                  {tx && receiptContacts.length > 0 && (
+                    <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 13, color: '#555' }}>📄 Contact facture :</span>
+                      <select
+                        value={tx.receipt_contact_id ?? ''}
+                        onChange={(e) => updateContact(tx.id, e.target.value)}
+                        style={{ fontSize: 13, padding: '3px 6px', borderRadius: 6, border: '1px solid #d1d5db' }}
+                      >
+                        <option value="">— Aucun —</option>
+                        {receiptContacts.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
                     </div>
                   )}
                   <div style={{ fontSize: 14, opacity: 0.7, marginTop: 4 }}>
