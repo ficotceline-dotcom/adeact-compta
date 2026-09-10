@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { compressFile } from '@/lib/compressImage'
+import { useUserPermissions } from '@/lib/useUserPermissions'
 
 type RequestRow = {
   id: string
@@ -89,6 +90,9 @@ export default function ReceiptRequestsPage() {
   const [filesByTx, setFilesByTx] = useState<Record<string, File | null>>({})
   const [filter, setFilter] = useState<'open' | 'fulfilled' | 'all'>('open')
   const [filterMemberId, setFilterMemberId] = useState('')
+
+  const { permissions } = useUserPermissions()
+  const isAdmin = permissions.includes('admin_reimbursements')
 
   const [sendingBatch, setSendingBatch] = useState(false)
   const [receiptContacts, setReceiptContacts] = useState<{ id: string; name: string; discord_handle: string | null }[]>([])
@@ -184,7 +188,10 @@ export default function ReceiptRequestsPage() {
       const tx = txById[req.transaction_id]
       if (!tx) continue
 
+      // Skipped si aucun contact renseigné
       const contact = tx.receipt_contact_id ? contactMap.get(tx.receipt_contact_id) : null
+      if (!contact) continue
+
       const mention = contact?.discord_handle
         ? contact.discord_handle
         : contact?.name
@@ -295,17 +302,22 @@ export default function ReceiptRequestsPage() {
     }))
   }
 
-  async function cancelRequest(reqId: string) {
+  async function cancelRequest(reqId: string, transactionId: string) {
+    const motif = window.prompt('Motif de l\'abandon (obligatoire) :')
+    if (!motif?.trim()) return
+
     const { error } = await supabase
       .from('receipt_requests')
-      .update({ status: 'cancelled' })
+      .update({ status: 'cancelled', message: `[Abandonné] ${motif.trim()}` })
       .eq('id', reqId)
 
-    if (error) {
-      console.error(error)
-      alert('Erreur annulation')
-      return
-    }
+    if (error) { console.error(error); alert('Erreur annulation'); return }
+
+    await supabase
+      .from('transactions')
+      .update({ receipt_status: 'PJ abandonnée' })
+      .eq('id', transactionId)
+
     await load()
   }
 
@@ -519,8 +531,15 @@ export default function ReceiptRequestsPage() {
                     </div>
                   )}
                   {r.message && (
-                    <div style={{ marginTop: 8, padding: 10, background: '#f6f6f6', borderRadius: 8 }}>
-                      {r.message}
+                    <div style={{
+                      marginTop: 8, padding: 10, borderRadius: 8,
+                      background: r.message.startsWith('[Abandonné]') ? '#fef2f2' : '#f6f6f6',
+                      color: r.message.startsWith('[Abandonné]') ? '#991b1b' : undefined,
+                      fontSize: 13,
+                    }}>
+                      {r.message.startsWith('[Abandonné]')
+                        ? `🚫 ${r.message.replace('[Abandonné] ', '')}`
+                        : r.message}
                     </div>
                   )}
                 </div>
@@ -558,6 +577,19 @@ export default function ReceiptRequestsPage() {
                   >
                     Uploader & clôturer
                   </button>
+
+                  {isAdmin && r.status === 'open' && (
+                    <button
+                      onClick={() => cancelRequest(r.id, r.transaction_id)}
+                      style={{
+                        marginTop: 6, padding: '8px 12px', width: '100%',
+                        background: 'white', border: '1px solid #dc2626',
+                        color: '#dc2626', borderRadius: 6, cursor: 'pointer', fontSize: 13,
+                      }}
+                    >
+                      🚫 Abandonner la demande
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
